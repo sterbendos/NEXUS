@@ -1,0 +1,6 @@
+﻿PyQt6>=6.6
+pyserial>=3.5
+requests>=2.31.0
+pytest>=8.0.0
+
+pyshark>=0.6.0
