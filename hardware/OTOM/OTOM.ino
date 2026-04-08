@@ -16,6 +16,9 @@
 #include "jam.h"
 #include "rfid_tools.h"
 #include "ui_logic.h"
+#include "badusb.h"
+#include "wifi_tools.h"
+#include "ble_spam.h"
 
 // =============================
 // Setup
@@ -148,14 +151,33 @@ void loop() {
 
   // DOOM (Easter Egg)
   if (runMode == RUN_DOOM) {
-    if (bExit.pressedEvent) {
+    doomStep();
+    return;
+  }
+
+  // WiFi Attack
+  if (runMode == RUN_WIFI_ATTACK) {
+    if (bExit.pressedEvent || bEnter.pressedEvent) {
+      startWifiAttack(); // toggle off
       runMode = RUN_NONE;
-      logEvent("DOOM quit");
-      uiMode = UI_MENU;
-      page = PAGE_NONE;
-      drawMenu();
+      uiMode = UI_PAGE;
+      page = PAGE_WIFI;
+      drawWifiPage();
     }
-    else doomStep();
+    else wifiAttackStep();
+    return;
+  }
+
+  // BLE Spam
+  if (runMode == RUN_BLE_SPAM) {
+    if (bExit.pressedEvent || bEnter.pressedEvent) {
+      startBleSpam(); // toggle off
+      runMode = RUN_NONE;
+      uiMode = UI_PAGE;
+      page = PAGE_BLE;
+      drawBlePage();
+    }
+    else bleSpamStep();
     return;
   }
 
@@ -345,11 +367,29 @@ void loop() {
     if (page == PAGE_WIFI) {
       if (bEnter.pressedEvent) {
         wifiScan();
+      } else if (bConfirm.pressedEvent) {
+        askConfirm2("Beacon Spam", "Start Attack?", [](){
+          startWifiAttack();
+          runMode = RUN_WIFI_ATTACK;
+        });
       }
       return;
     }
 
-    if (page == PAGE_BLE || page == PAGE_BADUSB) {
+    if (page == PAGE_BLE) {
+      if (bEnter.pressedEvent) {
+        askConfirm2("BLE Spam", "Spam iPhones?", [](){
+          startBleSpam();
+          runMode = RUN_BLE_SPAM;
+        });
+      }
+      return;
+    }
+
+    if (page == PAGE_BADUSB) {
+      if (bEnter.pressedEvent) {
+        startBadUSB();
+      }
       return;
     }
 
