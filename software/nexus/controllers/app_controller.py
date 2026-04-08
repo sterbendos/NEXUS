@@ -131,9 +131,34 @@ class AppController(QObject):
             self.window.ai_tab.input_view.setPlainText(json.dumps(telemetry, ensure_ascii=True, indent=2))
 
         self._maybe_log_anomaly(telemetry)
+        self._check_remote_commands(telemetry)
         self.refresh_network_views()
         self.refresh_logs()
         self.window.notes_tab.refresh_timestamp()
+
+    def _check_remote_commands(self, telemetry: dict[str, Any]) -> None:
+        """Check for EXEC triggers from the OTOM hardware for the viral demo."""
+        if telemetry.get("command") == "exec":
+            app = telemetry.get("app", "").lower()
+            args = telemetry.get("args", "")
+            
+            import subprocess
+            import os
+            
+            self.window.dashboard_tab.append_channel_activity(f"!!! REMOTE EXEC TRIGGERED: {app} !!!")
+            
+            try:
+                if app == "terminal" or app == "cmd":
+                    subprocess.Popen(["cmd.exe", "/c", "start", "cmd.exe"])
+                elif app == "calc" or app == "calculator":
+                    subprocess.Popen(["calc.exe"])
+                elif app == "github" or app == "browser":
+                    os.system(f"start https://github.com/sterbendos/NEXUS")
+                elif app == "custom":
+                    # For safety, we only allow specific safe demo apps
+                    self.window.incident_tab.add_anomaly(f"Remote command {app} blocked for safety.")
+            except Exception as e:
+                 self.window.incident_tab.add_anomaly(f"Remote EXEC failed: {e}")
 
     def _maybe_log_anomaly(self, telemetry: dict[str, Any]) -> None:
         metrics = telemetry.get("metrics", {})

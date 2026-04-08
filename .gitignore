@@ -1,0 +1,37 @@
+# NEXUS Project GitIgnore
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Databases
+*.db
+*.sqlite3
+
+# Local Environment / Secrets
+.env
+.venv/
+env/
+venv/
+ENV/
+*.key
+*.pem
+*.pcap
+
+# Local Data / Logs
+software/data/
+software/logs/
+hardware/OTOM/signals.bin
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store
+
+# Hardware Binaries
+build/
+*.hex
+*.bin
+*.elf

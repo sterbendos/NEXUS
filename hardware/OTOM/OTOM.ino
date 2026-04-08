@@ -407,6 +407,21 @@ void loop() {
       return;
     }
 
+    if (page == PAGE_REMOTE) {
+      const int count = 4;
+      if (bUp.pressedEvent) { replayIndex = (replayIndex - 1 + count) % count; drawRemotePage(); }
+      else if (bDown.pressedEvent) { replayIndex = (replayIndex + 1) % count; drawRemotePage(); }
+      else if (bEnter.pressedEvent) {
+        switch (replayIndex) {
+          case 0: sendRemoteExec("terminal", ""); break;
+          case 1: sendRemoteExec("calc", "");     break;
+          case 2: sendRemoteExec("github", "");   break;
+          case 3: emitTelemetry("REMOTE", "info", "Ping from OTOM", false); break;
+        }
+      }
+      return;
+    }
+
     return;
   }
 

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from typing import Any
@@ -19,10 +19,16 @@ class ResponseParser:
         response_text = str(response_body.get("response") or "").strip()
 
         try:
-            parsed = json.loads(response_text)
+            import re
+            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            if json_match:
+                parsed = json.loads(json_match.group(0))
+            else:
+                parsed = json.loads(response_text)
+            
             if not isinstance(parsed, dict):
                 parsed = {}
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, ImportError):
             parsed = {}
 
         threat = str(parsed.get("threat_classification") or "Unknown")

@@ -503,3 +503,33 @@ static void showQuickMessage(const char* title, const char* line1, const char* l
   display.display();
   delay(700);
 }
+// =============================
+// Remote Execution Page
+// =============================
+static void drawRemotePage() {
+  display.clearDisplay();
+  drawHeader("NEXUS Remote");
+  display.setTextColor(1);
+  
+  const char* remote_cmds[] = { "Launch Terminal", "Open Calculator", "Go to GitHub", "Ping NEXUS" };
+  const int count = 4;
+  
+  const int y0 = 14;
+  const int lineH = 10;
+
+  for (int i = 0; i < count; i++) {
+    int y = y0 + i * lineH;
+    bool sel = (i == replayIndex); // Reuse replayIndex for menu selection
+
+    if (sel) { display.fillRect(0, y - 1, 128, lineH, 1); display.setTextColor(0); }
+    else     { display.setTextColor(1); }
+
+    display.setCursor(2, y);
+    display.print(remote_cmds[i]);
+  }
+
+  display.setTextColor(1);
+  display.setCursor(0, 56);
+  display.print("Enter=EX Exit=Back");
+  display.display();
+}

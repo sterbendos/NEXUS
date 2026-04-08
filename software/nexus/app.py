@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from nexus.ai.ai_connector import AIConnector
 from nexus.config import DB_PATH, OLLAMA_BASE_URL, OLLAMA_MODEL

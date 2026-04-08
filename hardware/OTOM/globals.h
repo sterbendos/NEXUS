@@ -105,6 +105,7 @@ static const char* MAIN_ITEMS[] = {
   "BLE Scan",
   "NFC",
   "BadUSB",
+  "NEXUS Remote",
   "Play DOOM!"
 };
 static const uint8_t MAIN_COUNT = sizeof(MAIN_ITEMS)/sizeof(MAIN_ITEMS[0]);

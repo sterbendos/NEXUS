@@ -9,6 +9,7 @@
 #include "eyes.h"
 #include "rfid_tools.h"
 #include "doom.h"
+#include "remote.h"
 
 // =============================
 // Signal delete/clear callbacks
@@ -120,6 +121,7 @@ static void openPage(PageId p) {
     case PAGE_BLE:       drawBlePage(); logEvent("Page BLE"); break;
     case PAGE_NFC:       rfidMenuIndex=0; drawRfidMenu(); logEvent("Page NFC"); break;
     case PAGE_BADUSB:    drawBadUsbPage(); logEvent("Page BadUSB"); break;
+    case PAGE_REMOTE:    replayIndex=0; drawRemotePage(); logEvent("Page Remote"); break;
     case PAGE_DOOM:      startDoom(); logEvent("Page DOOM"); break;
     default:             uiMode = UI_MENU; page = PAGE_NONE; drawMenu(); break;
   }
@@ -153,6 +155,7 @@ static void handleMenuEnter() {
     case 13: openPage(PAGE_BLE);     break;
     case 14: openPage(PAGE_NFC);     break;
     case 15: openPage(PAGE_BADUSB);  break;
-    case 16: openPage(PAGE_DOOM);    break;
+    case 16: openPage(PAGE_REMOTE);  break;
+    case 17: openPage(PAGE_DOOM);    break;
   }
 }

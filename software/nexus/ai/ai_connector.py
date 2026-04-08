@@ -27,7 +27,6 @@ class OllamaWorker(QThread):
                 "model": self.model,
                 "prompt": prompt,
                 "stream": False,
-                "format": "json",
                 "options": {"temperature": 0.1},
             }
 
