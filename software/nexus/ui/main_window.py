@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 from nexus.controllers.navigation_controller import NavigationController
 from nexus.ui.styles import DARK_THEME_STYLESHEET
 from nexus.ui.tabs.ai_tab import AIAnalysisTab
+from nexus.ui.tabs.chat_tab import ChatTab
 from nexus.ui.tabs.dashboard_tab import DashboardTab
 from nexus.ui.tabs.incident_tab import IncidentResponseTab
 from nexus.ui.tabs.ingest_tab import DataIngestTab
@@ -79,6 +80,7 @@ class MainWindow(QMainWindow):
         self.incident_tab = IncidentResponseTab()
         self.pentest_tab = PentestingTab()
         self.ai_tab = AIAnalysisTab()
+        self.chat_tab = ChatTab()
         self.notes_tab = NotesTab()
         self.logs_tab = LogsDatabaseTab()
 
@@ -112,6 +114,11 @@ class MainWindow(QMainWindow):
                 "AI Analysis",
                 "Run local model analysis and capture threat classification output.",
                 self.ai_tab,
+            ),
+            (
+                "AI Chat",
+                "Have a technical conversation with the local NEXUS intelligence engine.",
+                self.chat_tab,
             ),
             (
                 "Notes Device",

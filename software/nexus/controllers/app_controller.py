@@ -9,6 +9,7 @@ from PyQt6.QtCore import QObject
 from PyQt6.QtWidgets import QFileDialog
 
 from nexus.ai.ai_connector import AIConnector
+from nexus.ai.chat_connector import ChatConnector
 from nexus.db.database import DatabaseManager
 from nexus.hardware.telemetry_ingest import TelemetryIngestManager
 from nexus.notes.notes_service import NotesService
@@ -22,6 +23,7 @@ class AppController(QObject):
         database: DatabaseManager,
         ingest: TelemetryIngestManager,
         ai_connector: AIConnector,
+        chat_connector: ChatConnector,
         notes_service: NotesService,
     ) -> None:
         super().__init__()
@@ -29,6 +31,7 @@ class AppController(QObject):
         self.db = database
         self.ingest = ingest
         self.ai = ai_connector
+        self.chat = chat_connector
         self.notes_service = notes_service
         self._last_telemetry: dict[str, Any] = {}
 
@@ -60,6 +63,13 @@ class AppController(QObject):
 
         self.window.pentest_tab.load_pcap_btn.clicked.connect(self._load_pcap)
         self.window.pentest_tab.save_evidence_btn.clicked.connect(self._save_evidence_tag)
+
+        # AI Chat bindings
+        self.window.chat_tab.send_message_signal.connect(self.chat.send_message)
+        self.window.chat_tab.clear_chat_signal.connect(self.chat.clear_history)
+        self.chat.thinking_started.connect(lambda: self.window.chat_tab.set_thinking(True))
+        self.chat.message_received.connect(self._on_chat_received)
+        self.chat.error_occurred.connect(self._on_chat_error)
 
     def shutdown(self) -> None:
         self.ingest.stop_all()
@@ -218,6 +228,16 @@ class AppController(QObject):
         self.window.ai_tab.set_status(message, "bad")
         self.window.incident_tab.add_anomaly(message)
         self.db.store_anomaly(event_type="ai_error", severity="medium", details=message)
+
+    def _on_chat_received(self, response: str) -> None:
+        self.window.chat_tab.add_message(response, "ai")
+        self.window.chat_tab.set_thinking(False)
+        self.window.incident_tab.add_timeline_event("AI chat message received")
+
+    def _on_chat_error(self, message: str) -> None:
+        self.window.chat_tab.add_message(f"Error: {message}", "ai")
+        self.window.chat_tab.set_thinking(False)
+        self.window.incident_tab.add_anomaly(f"AI Chat Error: {message}")
 
     def refresh_network_views(self) -> None:
         devices = self.db.fetch_device_summary()

@@ -1,4 +1,4 @@
-﻿DARK_THEME_STYLESHEET = """
+DARK_THEME_STYLESHEET = """
 QMainWindow, QWidget {
     color: #d7e4f3;
     font-family: "Bahnschrift", "Trebuchet MS", sans-serif;
@@ -179,5 +179,44 @@ QLabel[status="warn"] {
 QLabel[status="bad"] {
     color: #ff9fa1;
     font-weight: 600;
+}
+
+/* AI Chat Styling */
+QScrollArea#ChatScroll {
+    background-color: transparent;
+    border: none;
+}
+
+QWidget#ChatContent {
+    background-color: transparent;
+}
+
+QLabel#ChatBubble {
+    border-radius: 12px;
+    padding: 10px 14px;
+    font-size: 13px;
+    line-height: 1.4;
+    margin-bottom: 4px;
+}
+
+QLabel#UserBubble {
+    background-color: #1a4b6b;
+    color: #e8f5ff;
+    border: 1px solid #377295;
+    border-bottom-right-radius: 2px;
+}
+
+QLabel#AiBubble {
+    background-color: rgba(30, 48, 68, 0.85);
+    color: #d7e4f3;
+    border: 1px solid #2d4962;
+    border-bottom-left-radius: 2px;
+}
+
+QLabel#ThinkingLabel {
+    color: #6f8ca8;
+    font-style: italic;
+    font-size: 11px;
+    padding-left: 10px;
 }
 """
