@@ -37,10 +37,11 @@ class LogsDatabaseTab(QWidget):
         self.limit_spin = QSpinBox()
         self.limit_spin.setRange(1, 1000)
         self.limit_spin.setValue(200)
+
         filter_row = QHBoxLayout()
         self.refresh_btn = QPushButton("Run Query")
         self.export_csv_btn = QPushButton("Export CSV")
-        self.purge_btn = QPushButton("Purge Old Rows…")
+        self.purge_btn = QPushButton("Purge Old Rows...")
         self.status_label = QLabel("Ready")
         filter_row.addWidget(self.refresh_btn)
         filter_row.addWidget(self.export_csv_btn)
@@ -93,11 +94,13 @@ class LogsDatabaseTab(QWidget):
             writer = csv.writer(f)
             writer.writerow(["ID", "Timestamp", "Device", "Source", "Channel", "Payload"])
             for row in self._current_rows:
-                writer.writerow([
-                    row.get("id", ""),
-                    row.get("timestamp", ""),
-                    row.get("device_id", ""),
-                    row.get("source", ""),
-                    row.get("channel", ""),
-                    json.dumps(row.get("payload", {}), ensure_ascii=True),
-                ])
+                writer.writerow(
+                    [
+                        row.get("id", ""),
+                        row.get("timestamp", ""),
+                        row.get("device_id", ""),
+                        row.get("source", ""),
+                        row.get("channel", ""),
+                        json.dumps(row.get("payload", {}), ensure_ascii=True),
+                    ]
+                )

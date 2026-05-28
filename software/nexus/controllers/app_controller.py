@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import json
-
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import QObject
+from PyQt6.QtCore import QObject, QThread, pyqtSignal
 from PyQt6.QtWidgets import QFileDialog
 
 from nexus.ai.ai_connector import AIConnector
@@ -14,6 +13,91 @@ from nexus.db.database import DatabaseManager
 from nexus.hardware.telemetry_ingest import TelemetryIngestManager
 from nexus.notes.notes_service import NotesService
 from nexus.ui.main_window import MainWindow
+
+
+def summarize_pcap_capture(file_path: str) -> str:
+    path = Path(file_path)
+    if not path.exists():
+        return "Capture file not found"
+
+    try:
+        import pyshark
+    except ImportError:
+        return "pyshark is not installed. Run `pip install pyshark` to enable PCAP analysis."
+
+    size_bytes = path.stat().st_size
+    suffix = path.suffix.lower()
+
+    lines = [
+        f"File: {path.name}",
+        f"Type: {suffix or 'unknown'}",
+        f"Size: {size_bytes} bytes",
+        "--- Processing PCAP with PyShark ---",
+    ]
+
+    try:
+        cap = pyshark.FileCapture(str(path), keep_packets=False)
+        packet_count = 0
+        protocols: dict[str, int] = {}
+        top_talkers: dict[str, int] = {}
+        max_packets = 1000
+
+        for pkt in cap:
+            packet_count += 1
+
+            highest_layer = pkt.highest_layer
+            protocols[highest_layer] = protocols.get(highest_layer, 0) + 1
+
+            if hasattr(pkt, "ip"):
+                src = pkt.ip.src
+                dst = pkt.ip.dst
+                top_talkers[src] = top_talkers.get(src, 0) + 1
+                top_talkers[dst] = top_talkers.get(dst, 0) + 1
+            elif hasattr(pkt, "ipv6"):
+                src = pkt.ipv6.src
+                dst = pkt.ipv6.dst
+                top_talkers[src] = top_talkers.get(src, 0) + 1
+                top_talkers[dst] = top_talkers.get(dst, 0) + 1
+
+            if packet_count >= max_packets:
+                lines.append(f"[Note: Analysis capped at first {max_packets} packets for speed]")
+                break
+
+        cap.close()
+        lines.append(f"Total packets scanned: {packet_count}")
+
+        if protocols:
+            lines.append("")
+            lines.append("Top Protocols:")
+            for proto, count in sorted(protocols.items(), key=lambda item: item[1], reverse=True)[:5]:
+                lines.append(f"  - {proto}: {count} packets")
+
+        if top_talkers:
+            lines.append("")
+            lines.append("Top Talkers (IP/IPv6):")
+            for ip, count in sorted(top_talkers.items(), key=lambda item: item[1], reverse=True)[:5]:
+                lines.append(f"  - {ip}: {count} appearances")
+
+    except Exception as exc:
+        lines.append(f"Error reading capture with pyshark: {exc}")
+
+    return "\n".join(lines)
+
+
+class PcapSummaryWorker(QThread):
+    finished_signal = pyqtSignal(str, str)
+    error_signal = pyqtSignal(str)
+
+    def __init__(self, file_path: str) -> None:
+        super().__init__()
+        self.file_path = file_path
+
+    def run(self) -> None:
+        try:
+            summary = summarize_pcap_capture(self.file_path)
+            self.finished_signal.emit(self.file_path, summary)
+        except Exception as exc:
+            self.error_signal.emit(f"Failed to analyze capture: {exc}")
 
 
 class AppController(QObject):
@@ -34,6 +118,7 @@ class AppController(QObject):
         self.chat = chat_connector
         self.notes_service = notes_service
         self._last_telemetry: dict[str, Any] = {}
+        self._pcap_worker: PcapSummaryWorker | None = None
 
         self._bind_events()
         self._load_initial_state()
@@ -355,9 +440,29 @@ class AppController(QObject):
         if not file_path:
             return
 
-        summary = self._summarize_capture(file_path)
+        if self._pcap_worker is not None and self._pcap_worker.isRunning():
+            self.window.pentest_tab.set_status("PCAP analysis already running", ok=False)
+            return
+
+        self.window.pentest_tab.set_status("Analyzing capture...", ok=True)
+        self.window.pentest_tab.show_pcap_summary(path=Path(file_path).name, summary="Loading...")
+
+        worker = PcapSummaryWorker(file_path)
+        worker.finished_signal.connect(self._on_pcap_summary_ready)
+        worker.error_signal.connect(self._on_pcap_summary_error)
+        worker.finished.connect(worker.deleteLater)
+        self._pcap_worker = worker
+        worker.start()
+
+    def _on_pcap_summary_ready(self, file_path: str, summary: str) -> None:
         self.window.pentest_tab.show_pcap_summary(path=Path(file_path).name, summary=summary)
+        self.window.pentest_tab.set_status("PCAP analysis complete", ok=True)
         self.window.incident_tab.add_timeline_event(f"Loaded capture: {Path(file_path).name}")
+        self._pcap_worker = None
+
+    def _on_pcap_summary_error(self, message: str) -> None:
+        self.window.pentest_tab.set_status(message, ok=False)
+        self._pcap_worker = None
 
     def _save_evidence_tag(self) -> None:
         event_id = self.window.pentest_tab.event_id_input.text().strip()
@@ -370,76 +475,3 @@ class AppController(QObject):
 
         record_id = self.db.store_evidence_tag(event_id=event_id, tags=tags, description=description)
         self.window.pentest_tab.set_status(f"Saved evidence tag #{record_id}", ok=True)
-
-    def _summarize_capture(self, file_path: str) -> str:
-        path = Path(file_path)
-        if not path.exists():
-            return "Capture file not found"
-
-        try:
-            import pyshark
-        except ImportError:
-            return "pyshark is not installed. Run `pip install pyshark` to enable PCAP analysis."
-
-        size_bytes = path.stat().st_size
-        suffix = path.suffix.lower()
-
-        lines = [
-            f"File: {path.name}",
-            f"Type: {suffix or 'unknown'}",
-            f"Size: {size_bytes} bytes",
-            "--- Processing PCAP with PyShark ---"
-        ]
-
-        try:
-            # We use keep_packets=False to avoid loading massive PCAPs into RAM
-            cap = pyshark.FileCapture(str(path), keep_packets=False)
-            
-            packet_count = 0
-            protocols = {}
-            top_talkers = {}
-            
-            # Read only the first 1000 packets to keep UI responsive
-            MAX_PACKETS = 1000
-            
-            for pkt in cap:
-                packet_count += 1
-                
-                highest_layer = pkt.highest_layer
-                protocols[highest_layer] = protocols.get(highest_layer, 0) + 1
-                
-                if hasattr(pkt, 'ip'):
-                    src = pkt.ip.src
-                    dst = pkt.ip.dst
-                    top_talkers[src] = top_talkers.get(src, 0) + 1
-                    top_talkers[dst] = top_talkers.get(dst, 0) + 1
-                elif hasattr(pkt, 'ipv6'):
-                    src = pkt.ipv6.src
-                    dst = pkt.ipv6.dst
-                    top_talkers[src] = top_talkers.get(src, 0) + 1
-                    top_talkers[dst] = top_talkers.get(dst, 0) + 1
-                    
-                if packet_count >= MAX_PACKETS:
-                    lines.append(f"\n[Note: Analysis capped at first {MAX_PACKETS} packets for speed]")
-                    break
-                    
-            cap.close()
-            
-            lines.append(f"Total packets scanned: {packet_count}")
-            
-            if protocols:
-                lines.append("\nTop Protocols:")
-                sorted_protos = sorted(protocols.items(), key=lambda x: x[1], reverse=True)[:5]
-                for proto, count in sorted_protos:
-                    lines.append(f"  - {proto}: {count} packets")
-                    
-            if top_talkers:
-                lines.append("\nTop Talkers (IP/IPv6):")
-                sorted_talkers = sorted(top_talkers.items(), key=lambda x: x[1], reverse=True)[:5]
-                for ip, count in sorted_talkers:
-                    lines.append(f"  - {ip}: {count} appearances")
-
-        except Exception as e:
-            lines.append(f"Error reading capture with pyshark: {e}")
-
-        return "\n".join(lines)

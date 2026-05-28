@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve
+from PyQt6.QtCore import QEasingCurve, QPropertyAnimation, Qt
 from PyQt6.QtWidgets import (
     QFrame,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -10,7 +11,6 @@ from PyQt6.QtWidgets import (
     QStackedWidget,
     QVBoxLayout,
     QWidget,
-    QGraphicsOpacityEffect,
 )
 
 from nexus.controllers.navigation_controller import NavigationController
@@ -41,6 +41,7 @@ class MainWindow(QMainWindow):
         root = QWidget()
         root.setObjectName("AppRoot")
         self.setCentralWidget(root)
+
         root_layout = QHBoxLayout(root)
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
@@ -48,6 +49,7 @@ class MainWindow(QMainWindow):
         sidebar = QFrame()
         sidebar.setObjectName("Sidebar")
         sidebar.setFixedWidth(258)
+
         side_layout = QVBoxLayout(sidebar)
         side_layout.setContentsMargins(14, 14, 14, 14)
         side_layout.setSpacing(8)
@@ -65,7 +67,6 @@ class MainWindow(QMainWindow):
         subtitle.setWordWrap(True)
         brand_layout.addWidget(title)
         brand_layout.addWidget(subtitle)
-
         side_layout.addWidget(brand_card)
 
         hint = QLabel("Navigation")
@@ -87,51 +88,15 @@ class MainWindow(QMainWindow):
         self.logs_tab = LogsDatabaseTab()
 
         nav_map = [
-            (
-                "Dashboard",
-                "Live hardware state, telemetry preview, and environment rollup.",
-                self.dashboard_tab,
-            ),
-            (
-                "Data Ingest",
-                "Manage serial/TCP listeners and inspect incoming JSON streams.",
-                self.ingest_tab,
-            ),
-            (
-                "Network Monitor",
-                "Track discovered devices and telemetry-driven traffic summary.",
-                self.network_tab,
-            ),
-            (
-                "Incident Response",
-                "Review timeline, anomalies, and environment drift placeholders.",
-                self.incident_tab,
-            ),
-            (
-                "Pentesting",
-                "Authorized analysis workspace for PCAP review and evidence tags.",
-                self.pentest_tab,
-            ),
-            (
-                "AI Analysis",
-                "Run local model analysis and capture threat classification output.",
-                self.ai_tab,
-            ),
-            (
-                "AI Chat",
-                "Have a technical conversation with the local NEXUS intelligence engine.",
-                self.chat_tab,
-            ),
-            (
-                "Notes Device",
-                "Capture structured markdown notes linked to incidents/events.",
-                self.notes_tab,
-            ),
-            (
-                "Logs Database",
-                "Query and filter persisted telemetry from SQLite storage.",
-                self.logs_tab,
-            ),
+            ("Dashboard", "Live hardware state, telemetry preview, and environment rollup.", self.dashboard_tab),
+            ("Data Ingest", "Manage serial/TCP listeners and inspect incoming JSON streams.", self.ingest_tab),
+            ("Network Monitor", "Track discovered devices and telemetry-driven traffic summary.", self.network_tab),
+            ("Incident Response", "Review timeline, anomalies, and environment drift hooks.", self.incident_tab),
+            ("Pentesting", "Authorized analysis workspace for PCAP review and evidence tags.", self.pentest_tab),
+            ("AI Analysis", "Run local model analysis and capture threat classification output.", self.ai_tab),
+            ("AI Chat", "Talk with the local NEXUS intelligence engine.", self.chat_tab),
+            ("Notes Device", "Capture structured markdown notes linked to incidents and events.", self.notes_tab),
+            ("Logs Database", "Query and filter persisted telemetry from SQLite storage.", self.logs_tab),
         ]
 
         self.nav_buttons: dict[str, QPushButton] = {}
@@ -180,20 +145,16 @@ class MainWindow(QMainWindow):
             self.section_title.setText(title)
             self.section_subtitle.setText(subtitle)
 
-            # Animate page switch fade-in
             widget = self.stack.widget(index)
             if widget:
-                # Set graphic opacity effect
                 effect = QGraphicsOpacityEffect(widget)
                 widget.setGraphicsEffect(effect)
-                
+
                 self._fade_anim = QPropertyAnimation(effect, b"opacity")
                 self._fade_anim.setDuration(250)
                 self._fade_anim.setStartValue(0.0)
                 self._fade_anim.setEndValue(1.0)
                 self._fade_anim.setEasingCurve(QEasingCurve.Type.OutQuad)
-                
-                # Clean up effect on complete to restore full interactivity
                 self._fade_anim.finished.connect(lambda w=widget: w.setGraphicsEffect(None))
                 self._fade_anim.start()
 
@@ -203,8 +164,8 @@ class MainWindow(QMainWindow):
             "QStatusBar { background-color: #090f17; color: #6f8ca8; font-size: 11px; border-top: 1px solid #1f3448; }"
             "QStatusBar::item { border: none; }"
         )
-        self._sb_serial = QLabel("Serial: ● Disconnected")
-        self._sb_tcp = QLabel("TCP: ● Disconnected")
+        self._sb_serial = QLabel("Serial: [ ] Disconnected")
+        self._sb_tcp = QLabel("TCP: [ ] Disconnected")
         self._sb_rows = QLabel("DB: 0 rows")
         self._sb_model = QLabel("Model: gemma3:4b")
         sb.addWidget(self._sb_serial)
@@ -225,11 +186,13 @@ class MainWindow(QMainWindow):
     ) -> None:
         """Update the persistent status bar labels."""
         if serial_connected is not None:
-            icon = "●" if serial_connected else "○"
-            self._sb_serial.setText(f"Serial: {icon} {serial_msg or ('Connected' if serial_connected else 'Disconnected')}")
+            icon = "[x]" if serial_connected else "[ ]"
+            message = serial_msg or ("Connected" if serial_connected else "Disconnected")
+            self._sb_serial.setText(f"Serial: {icon} {message}")
         if tcp_connected is not None:
-            icon = "●" if tcp_connected else "○"
-            self._sb_tcp.setText(f"TCP: {icon} {tcp_msg or ('Connected' if tcp_connected else 'Disconnected')}")
+            icon = "[x]" if tcp_connected else "[ ]"
+            message = tcp_msg or ("Connected" if tcp_connected else "Disconnected")
+            self._sb_tcp.setText(f"TCP: {icon} {message}")
         if db_rows is not None:
             self._sb_rows.setText(f"DB: {db_rows:,} rows")
         if model:
@@ -239,4 +202,3 @@ class MainWindow(QMainWindow):
         if callable(self.on_close):
             self.on_close()
         super().closeEvent(event)
-

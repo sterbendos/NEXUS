@@ -12,6 +12,10 @@ python -m pip install -r requirements.txt
 python main.py
 ```
 
+Optional environment overrides:
+- `NEXUS_OLLAMA_BASE_URL` sets the Ollama API endpoint.
+- `NEXUS_OLLAMA_MODEL` sets the model name.
+
 ## Default Telemetry JSON Schema
 The ingest layer accepts flexible JSON and normalizes into:
 

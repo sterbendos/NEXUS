@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-import requests
 from typing import Any
 
+import requests
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
 
 from nexus.ai.prompt_formatter import PromptFormatter
@@ -19,6 +19,10 @@ class OllamaWorker(QThread):
         self.base_url = base_url
         self.model = model
         self.log_payload = log_payload
+        self._cancel_requested = False
+
+    def request_cancel(self) -> None:
+        self._cancel_requested = True
 
     def run(self) -> None:
         try:
@@ -31,21 +35,26 @@ class OllamaWorker(QThread):
             }
 
             response = requests.post(f"{self.base_url}/api/generate", json=body, timeout=60)
-            response.raise_for_status()
+            if self._cancel_requested:
+                return
 
+            response.raise_for_status()
             data = response.json()
             if not isinstance(data, dict):
                 raise ValueError("Ollama response is not a JSON object")
 
             parsed = ResponseParser.parse(data)
+            if self._cancel_requested:
+                return
+
             self.finished_signal.emit(parsed)
 
-        except requests.exceptions.RequestException as e:
-            self.error_signal.emit(f"Ollama request failed: {e}")
-        except (json.JSONDecodeError, ValueError) as e:
-            self.error_signal.emit(f"Invalid Ollama response: {e}")
-        except Exception as e:
-            self.error_signal.emit(f"Unexpected error during analysis: {e}")
+        except requests.exceptions.RequestException as exc:
+            self.error_signal.emit(f"Ollama request failed: {exc}")
+        except (json.JSONDecodeError, ValueError) as exc:
+            self.error_signal.emit(f"Invalid Ollama response: {exc}")
+        except Exception as exc:
+            self.error_signal.emit(f"Unexpected error during analysis: {exc}")
 
 
 class AIConnector(QObject):
@@ -83,10 +92,7 @@ class AIConnector(QObject):
         self._worker = None
 
     def cancel(self) -> None:
-        """Terminate any running analysis worker and signal an error to the UI."""
+        """Request cancellation without force-terminating the worker thread."""
         if self._worker is not None and self._worker.isRunning():
-            self._worker.terminate()
-            self._worker.wait(500)
-            self._worker = None
-            self.analysis_error.emit("Analysis cancelled by user.")
-
+            self._worker.request_cancel()
+            self.analysis_error.emit("Analysis cancellation requested.")
