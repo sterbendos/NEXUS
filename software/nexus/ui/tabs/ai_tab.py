@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import (
     QFormLayout,
@@ -24,7 +26,7 @@ class AIAnalysisTab(QWidget):
 
     def _tick_elapsed(self) -> None:
         self._elapsed_seconds += 1
-        self.status_label.setText(f"Running analysis… {self._elapsed_seconds}s")
+        self.status_label.setText(f"Running analysis... {self._elapsed_seconds}s")
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -61,16 +63,21 @@ class AIAnalysisTab(QWidget):
         self.mitigation_output.setReadOnly(True)
         self.rationale_output = QPlainTextEdit()
         self.rationale_output.setReadOnly(True)
+        self.hardware_jobs_output = QPlainTextEdit()
+        self.hardware_jobs_output.setReadOnly(True)
+        self.dispatch_jobs_btn = QPushButton("Dispatch Hardware Jobs")
+        self.dispatch_jobs_btn.setEnabled(False)
         output_layout.addRow("Threat Classification:", self.classification_output)
         output_layout.addRow("Severity:", self.severity_output)
         output_layout.addRow("Suggested Mitigation:", self.mitigation_output)
         output_layout.addRow("Rationale:", self.rationale_output)
+        output_layout.addRow("Hardware Jobs:", self.hardware_jobs_output)
+        output_layout.addRow(self.dispatch_jobs_btn)
 
         layout.addWidget(input_group, 1)
         layout.addWidget(output_group, 1)
 
     def set_status(self, text: str, state: str = "warn") -> None:
-        # If we're starting analysis, kick off the elapsed timer
         if state == "warn" and "Running" in text:
             self._elapsed_seconds = 0
             self._elapsed_timer.start(1000)
@@ -90,3 +97,10 @@ class AIAnalysisTab(QWidget):
         self.severity_output.setText(str(result.get("severity", "medium")))
         self.mitigation_output.setPlainText(str(result.get("suggested_mitigation", "")))
         self.rationale_output.setPlainText(str(result.get("rationale", "")))
+        jobs = result.get("hardware_jobs") or []
+        if jobs:
+            self.hardware_jobs_output.setPlainText(json.dumps(jobs, ensure_ascii=True, indent=2))
+            self.dispatch_jobs_btn.setEnabled(True)
+        else:
+            self.hardware_jobs_output.setPlainText("No hardware jobs proposed.")
+            self.dispatch_jobs_btn.setEnabled(False)

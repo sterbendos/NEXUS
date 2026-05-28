@@ -19,6 +19,7 @@
 #include "badusb.h"
 #include "wifi_tools.h"
 #include "ble_spam.h"
+#include "job_control.h"
 
 // =============================
 // Setup
@@ -73,6 +74,7 @@ void loop() {
   uint32_t now = millis();
   updateButtons(now);
   telemetryTick(now);
+  jobControlTick();
 
   // Handle running tools
   if (runMode == RUN_SPECTRUM) {

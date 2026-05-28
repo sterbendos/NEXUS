@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import QFileDialog
 from nexus.ai.ai_connector import AIConnector
 from nexus.ai.chat_connector import ChatConnector
 from nexus.db.database import DatabaseManager
+from nexus.hardware.job_protocol import JOB_SCHEMA_VERSION, validate_job_payload
 from nexus.hardware.telemetry_ingest import TelemetryIngestManager
 from nexus.notes.notes_service import NotesService
 from nexus.ui.main_window import MainWindow
@@ -119,6 +120,7 @@ class AppController(QObject):
         self.notes_service = notes_service
         self._last_telemetry: dict[str, Any] = {}
         self._pcap_worker: PcapSummaryWorker | None = None
+        self._pending_hardware_jobs: list[dict[str, Any]] = []
 
         self._bind_events()
         self._load_initial_state()
@@ -137,6 +139,7 @@ class AppController(QObject):
 
         self.window.ai_tab.analyze_btn.clicked.connect(self._on_run_ai)
         self.window.ai_tab.cancel_btn.clicked.connect(self.ai.cancel)
+        self.window.ai_tab.dispatch_jobs_btn.clicked.connect(self._dispatch_hardware_jobs)
         self.ai.analysis_started.connect(lambda: self.window.ai_tab.set_status("Running analysis...", "warn"))
         self.ai.analysis_ready.connect(self._on_ai_ready)
         self.ai.analysis_error.connect(self._on_ai_error)
@@ -287,6 +290,14 @@ class AppController(QObject):
     def _on_ai_ready(self, result: dict[str, Any]) -> None:
         self.window.ai_tab.set_result(result)
         self.window.ai_tab.set_status("Analysis complete", "ok")
+        self._pending_hardware_jobs = []
+        for raw_job in result.get("hardware_jobs", []):
+            if isinstance(raw_job, dict):
+                ok, reason = validate_job_payload(raw_job)
+                if ok:
+                    self._pending_hardware_jobs.append(raw_job)
+                else:
+                    self.window.incident_tab.add_anomaly(f"Rejected AI job suggestion: {reason}")
 
         event_id = self.window.notes_tab.event_id_input.text().strip() or str(
             self._last_telemetry.get("device_id", "")
@@ -301,11 +312,54 @@ class AppController(QObject):
             raw_response=result.get("raw_response", {}),
         )
         self.window.incident_tab.add_timeline_event("AI analysis completed")
+        if self._pending_hardware_jobs:
+            self.window.ai_tab.set_status(
+                f"Analysis complete; {len(self._pending_hardware_jobs)} hardware job(s) ready",
+                "ok",
+            )
 
     def _on_ai_error(self, message: str) -> None:
         self.window.ai_tab.set_status(message, "bad")
         self.window.incident_tab.add_anomaly(message)
         self.db.store_anomaly(event_type="ai_error", severity="medium", details=message)
+
+    def _dispatch_hardware_jobs(self) -> None:
+        if not self._pending_hardware_jobs:
+            self.window.ai_tab.set_status("No approved hardware jobs to dispatch", "bad")
+            return
+
+        if not self.ingest.has_serial_command_channel():
+            self.window.ai_tab.set_status("Serial command channel is not available", "bad")
+            return
+
+        delivered = 0
+        for job in self._pending_hardware_jobs:
+            payload = dict(job)
+            payload.setdefault("schema", JOB_SCHEMA_VERSION)
+            payload.setdefault("kind", "job_submit")
+            payload.setdefault("requested_by", "nexus-ai")
+            payload.setdefault("audit_mode", True)
+            line = json.dumps(payload, ensure_ascii=True)
+            if self.ingest.send_serial_command(line):
+                delivered += 1
+                self.db.store_anomaly(
+                    event_type="job_dispatch",
+                    severity="low",
+                    details=f"Dispatched {payload.get('job_type')} job {payload.get('job_id')}",
+                )
+                self.window.incident_tab.add_timeline_event(
+                    f"Dispatched hardware job {payload.get('job_type')} ({payload.get('job_id')})"
+                )
+            else:
+                self.db.store_anomaly(
+                    event_type="job_dispatch_error",
+                    severity="medium",
+                    details=f"Failed to send job {payload.get('job_id')}",
+                )
+
+        self._pending_hardware_jobs = []
+        self.window.ai_tab.dispatch_jobs_btn.setEnabled(False)
+        self.window.ai_tab.set_status(f"Dispatched {delivered} hardware job(s)", "ok" if delivered else "bad")
 
     def _on_chat_received(self, response: str) -> None:
         self.window.chat_tab.add_message(response, "ai")

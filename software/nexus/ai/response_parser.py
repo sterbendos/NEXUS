@@ -47,6 +47,9 @@ class ResponseParser:
         severity = cls._coerce_severity(str(parsed.get("severity") or "medium"))
         mitigation = str(parsed.get("suggested_mitigation") or "No mitigation provided.")
         rationale = str(parsed.get("rationale") or "")
+        hardware_jobs = parsed.get("hardware_jobs")
+        if not isinstance(hardware_jobs, list):
+            hardware_jobs = []
 
         return {
             "model": model,
@@ -54,5 +57,6 @@ class ResponseParser:
             "severity": severity,
             "suggested_mitigation": mitigation,
             "rationale": rationale,
+            "hardware_jobs": hardware_jobs,
             "raw_response": response_body,
         }

@@ -3,6 +3,7 @@
 import json
 import select
 import socket
+import threading
 from datetime import datetime, timezone
 from typing import Any
 
@@ -88,6 +89,7 @@ class SerialListenerThread(QThread):
         self._baudrate = baudrate
         self._running = False
         self._serial_handle = None
+        self._write_lock = threading.Lock()
 
     def run(self) -> None:
         if serial is None:
@@ -139,6 +141,17 @@ class SerialListenerThread(QThread):
             except OSError:
                 pass
         self.wait(1500)
+
+    def send_line(self, line: str) -> bool:
+        if self._serial_handle is None:
+            return False
+        with self._write_lock:
+            try:
+                self._serial_handle.write((line.rstrip("\r\n") + "\n").encode("utf-8"))
+                self._serial_handle.flush()
+                return True
+            except OSError:
+                return False
 
 
 class TcpListenerThread(QThread):
@@ -285,6 +298,14 @@ class TelemetryIngestManager(QObject):
     def stop_all(self) -> None:
         self.stop_serial()
         self.stop_tcp()
+
+    def send_serial_command(self, line: str) -> bool:
+        if self._serial_thread and self._serial_thread.isRunning():
+            return self._serial_thread.send_line(line)
+        return False
+
+    def has_serial_command_channel(self) -> bool:
+        return bool(self._serial_thread and self._serial_thread.isRunning())
 
     def _handle_line(self, source: str, line: str) -> None:
         self.raw_line_received.emit(f"[{source}] {line}")
