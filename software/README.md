@@ -1,58 +1,41 @@
-﻿# NEXUS Desktop Intelligent Analysis Platform
+# NEXUS Desktop Quick Start
 
-## Overview
-NEXUS is a modular PyQt6 desktop application for telemetry ingestion, defensive network analysis, incident response support, evidence handling, and local AI-assisted interpretation.
+This folder contains the PyQt6 desktop client that ingests OTOM telemetry, stores it in SQLite, runs local Ollama analysis, and can dispatch allowlisted hardware jobs back to the device when audit mode is armed.
 
-The embedded firmware (`hardware/OTOM.ino`) is treated as a read-only telemetry source and is not modified.
+For the full system overview, firmware architecture, telemetry schema, and demo deployment instructions, see the repository root [README](../README.md).
 
 ## Run
+
 ```powershell
 cd software
+py -3.10 -m venv .venv
+.\.venv\Scripts\activate
 python -m pip install -r requirements.txt
 python main.py
 ```
 
-Optional environment overrides:
-- `NEXUS_OLLAMA_BASE_URL` sets the Ollama API endpoint.
-- `NEXUS_OLLAMA_MODEL` sets the model name.
+Optional environment variables:
 
-## Default Telemetry JSON Schema
-The ingest layer accepts flexible JSON and normalizes into:
+- `NEXUS_OLLAMA_BASE_URL`: Ollama server URL, defaults to `http://localhost:11434`
+- `NEXUS_OLLAMA_MODEL`: model name, defaults to `gemma3:4b`
 
-```json
-{
-  "timestamp": "ISO-8601 string (auto-filled if missing)",
-  "device_id": "string (defaults to unknown-device)",
-  "source": "serial|tcp",
-  "channel": "serial|tcp",
-  "network": {
-    "ip": "string",
-    "mac": "string"
-  },
-  "metrics": {},
-  "events": []
-}
-```
+## What The Desktop App Does
 
-## Key Modules
-- `nexus/hardware/telemetry_ingest.py`: serial auto-detect, TCP listener, JSON validation, DB persistence
-- `nexus/ai/ai_connector.py`: asynchronous Ollama API integration (`http://localhost:11434`)
-- `nexus/db/database.py`: thread-safe SQLite storage and queries
-- `nexus/ui/main_window.py`: QMainWindow + sidebar navigation + stacked tabs
-- `nexus/controllers/app_controller.py`: signal wiring and app orchestration
+- opens Serial or TCP telemetry sessions
+- validates and normalizes JSON telemetry
+- stores telemetry, anomalies, notes, evidence tags, and AI output in SQLite
+- shows a dashboard, network monitor, incident view, notes editor, logs browser, and AI tabs
+- sends structured telemetry to Ollama and parses the response back into stable JSON
+- validates and serializes `nexus.remote.job.v1` commands before dispatch
 
-## Hardware Job Contract
-- Schema: `nexus.remote.job.v1`
-- Transport: serial or TCP session to the device
-- Job payloads are allowlisted and audited before dispatch
-- Firmware emits queued/running/completed/blocked/failed job telemetry back into the same stream
+## Helpful Modules
 
-## Tabs
-1. Dashboard
-2. Data Ingest
-3. Network Monitor
-4. Incident Response
-5. Pentesting (Authorized Analysis)
-6. AI Analysis
-7. Notes Device
-8. Logs Database
+- `nexus/app.py`: application composition
+- `nexus/controllers/app_controller.py`: signal wiring and orchestration
+- `nexus/hardware/telemetry_ingest.py`: serial/TCP ingest and validation
+- `nexus/hardware/job_protocol.py`: job schema helpers
+- `nexus/db/database.py`: SQLite storage
+- `nexus/ai/ai_connector.py`: analysis requests to Ollama
+- `nexus/ai/chat_connector.py`: conversational Ollama chat
+- `nexus/notes/notes_service.py`: notes storage and export
+- `nexus/ui/`: tabbed UI and dashboard widgets

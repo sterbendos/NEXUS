@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="NEXUS demo: an interactive simulation of the OTOM telemetry pipeline and desktop analysis workflow."
+    />
+    <meta name="theme-color" content="#06111d" />
+    <title>NEXUS Demo | OTOM Telemetry Simulation</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="bg-grid"></div>
+    <div class="orb orb-a"></div>
+    <div class="orb orb-b"></div>
+    <div class="orb orb-c"></div>
+
+    <main class="shell">
+      <header class="hero panel">
+        <div class="hero-copy">
+          <span class="eyebrow">Static demo for Vercel</span>
+          <h1>NEXUS telemetry simulation</h1>
+          <p>
+            This public demo mirrors the OTOM to NEXUS workflow: the device emits telemetry,
+            the desktop pipeline ingests and stores it, and the analysis layer proposes
+            allowlisted hardware jobs. It is safe, self-contained, and does not talk to real
+            hardware.
+          </p>
+          <div class="hero-actions">
+            <button class="primary" id="start-button">Start live stream</button>
+            <button class="secondary" id="pause-button">Pause</button>
+            <button class="secondary" id="pulse-button">Emit one event</button>
+          </div>
+        </div>
+
+        <div class="hero-stats">
+          <div class="stat-card">
+            <span class="stat-label">Stream</span>
+            <strong id="stream-state">Running</strong>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Transport</span>
+            <strong id="transport-state">serial</strong>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Telemetry rows</span>
+            <strong id="rows-state">0</strong>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">AI model</span>
+            <strong>gemma3:4b</strong>
+          </div>
+        </div>
+      </header>
+
+      <section class="primary-grid">
+        <section class="panel control-panel">
+          <div class="panel-head">
+            <div>
+              <span class="panel-kicker">Control deck</span>
+              <h2>Interactive simulation controls</h2>
+            </div>
+            <span class="chip live">Live</span>
+          </div>
+
+          <div class="field-grid">
+            <label>
+              <span>Scenario</span>
+              <select id="scenario-select">
+                <option value="steady">Steady baseline</option>
+                <option value="noisy">Noisy network</option>
+                <option value="maintenance">Maintenance window</option>
+                <option value="anomaly">Anomaly burst</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Transport</span>
+              <select id="transport-select">
+                <option value="serial">Serial</option>
+                <option value="tcp">TCP</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Allowlisted job</span>
+              <select id="job-select">
+                <option value="device_inventory">device_inventory</option>
+                <option value="hardware_self_test">hardware_self_test</option>
+                <option value="passive_survey">passive_survey</option>
+                <option value="config_check">config_check</option>
+                <option value="benign_validation">benign_validation</option>
+                <option value="sd_benchmark">sd_benchmark</option>
+              </select>
+            </label>
+
+            <label class="toggle">
+              <input type="checkbox" id="audit-switch" checked />
+              <span>Audit mode armed</span>
+            </label>
+          </div>
+
+          <div class="button-row">
+            <button class="primary" id="job-button">Queue job</button>
+            <button class="secondary" id="reset-button">Reset demo</button>
+          </div>
+
+          <div class="subpanel">
+            <div class="subpanel-head">
+              <span>Queued jobs</span>
+              <span class="muted">schema: nexus.remote.job.v1</span>
+            </div>
+            <div id="job-list" class="stack-list"></div>
+          </div>
+        </section>
+
+        <section class="panel device-panel">
+          <div class="panel-head">
+            <div>
+              <span class="panel-kicker">OTOM device</span>
+              <h2>Embedded state view</h2>
+            </div>
+            <span class="chip subtle" id="analysis-badge">Stable baseline</span>
+          </div>
+
+          <div class="device-shell">
+            <div class="device-screen">
+              <div class="device-screen-top">
+                <span>OTOM / NEXUS</span>
+                <span id="screen-transport">serial</span>
+              </div>
+              <pre id="device-screen">Loading demo...</pre>
+              <div class="scanline"></div>
+            </div>
+            <div class="device-glow"></div>
+          </div>
+
+          <div class="metric-strip">
+            <div class="metric-card">
+              <span>Telemetry</span>
+              <strong id="telemetry-count">0</strong>
+            </div>
+            <div class="metric-card">
+              <span>Anomalies</span>
+              <strong id="anomaly-count">0</strong>
+            </div>
+            <div class="metric-card">
+              <span>Device ID</span>
+              <strong id="device-id">OTOM-DEMO</strong>
+            </div>
+            <div class="metric-card">
+              <span>Last seen</span>
+              <strong id="last-seen">-</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel analysis-panel">
+          <div class="panel-head">
+            <div>
+              <span class="panel-kicker">AI analysis</span>
+              <h2>Structured Ollama-style response</h2>
+            </div>
+            <span class="chip accent">Local-only</span>
+          </div>
+
+          <div class="analysis-block">
+            <div class="analysis-field">
+              <span>Threat classification</span>
+              <strong id="classification">Stable baseline</strong>
+            </div>
+            <div class="analysis-field">
+              <span>Severity</span>
+              <strong id="severity">low</strong>
+            </div>
+            <div class="analysis-field">
+              <span>Mitigation</span>
+              <p id="mitigation">
+                Continue passive monitoring and keep audit mode armed only for intentional lab
+                tests.
+              </p>
+            </div>
+            <div class="analysis-field">
+              <span>Rationale</span>
+              <p id="rationale">
+                The stream is stable, the queue is empty, and the ingest pipeline is behaving as
+                expected.
+              </p>
+            </div>
+          </div>
+
+          <div class="subpanel">
+            <div class="subpanel-head">
+              <span>Recommended hardware jobs</span>
+              <span class="muted">allowlisted only</span>
+            </div>
+            <div id="recommendations" class="chip-row"></div>
+          </div>
+
+          <div class="subpanel">
+            <div class="subpanel-head">
+              <span>Analysis JSON</span>
+              <span class="muted">preview only</span>
+            </div>
+            <pre id="analysis-json" class="json-box"></pre>
+          </div>
+        </section>
+      </section>
+
+      <section class="secondary-grid">
+        <section class="panel feed-panel">
+          <div class="panel-head">
+            <div>
+              <span class="panel-kicker">Live telemetry</span>
+              <h2>Streamed events</h2>
+            </div>
+            <span class="chip subtle">JSON lines</span>
+          </div>
+          <div id="feed-list" class="feed-list"></div>
+        </section>
+
+        <section class="panel pipeline-panel">
+          <div class="panel-head">
+            <div>
+              <span class="panel-kicker">Pipeline</span>
+              <h2>Firmware to desktop flow</h2>
+            </div>
+            <span class="chip subtle">Safe simulation</span>
+          </div>
+
+          <div class="pipeline">
+            <div class="stage" data-stage="firmware">
+              <strong>OTOM firmware</strong>
+              <span>Buttons, OLED, SD, radios, and telemetry output.</span>
+            </div>
+            <div class="stage" data-stage="transport">
+              <strong>Serial / TCP</strong>
+              <span>NDJSON telemetry and allowlisted command delivery.</span>
+            </div>
+            <div class="stage" data-stage="ingest">
+              <strong>NEXUS ingest</strong>
+              <span>Validation, normalization, and rate limiting.</span>
+            </div>
+            <div class="stage" data-stage="sqlite">
+              <strong>SQLite storage</strong>
+              <span>Telemetry, notes, evidence, anomalies, analysis.</span>
+            </div>
+            <div class="stage" data-stage="ai">
+              <strong>AI analysis</strong>
+              <span>Structured response and job recommendations.</span>
+            </div>
+            <div class="stage" data-stage="review">
+              <strong>Incident review</strong>
+              <span>Timeline, notes, logs, and evidence export.</span>
+            </div>
+          </div>
+
+          <div class="footer-copy">
+            The live app stores telemetry in SQLite and can dispatch only allowlisted job types
+            while audit mode is armed. This demo mirrors that gating model without connecting to
+            the device.
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
