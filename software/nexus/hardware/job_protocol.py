@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -73,3 +74,23 @@ def build_job_command(
         audit_mode=audit_mode,
         arguments=arguments or {},
     ).to_dict()
+
+
+def serialize_job_command(
+    job_id: str,
+    job_type: str,
+    requested_by: str = "nexus-ai",
+    audit_mode: bool = True,
+    arguments: dict[str, Any] | None = None,
+) -> str:
+    return json.dumps(
+        build_job_command(
+            job_id=job_id,
+            job_type=job_type,
+            requested_by=requested_by,
+            audit_mode=audit_mode,
+            arguments=arguments,
+        ),
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )

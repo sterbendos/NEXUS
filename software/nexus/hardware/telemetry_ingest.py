@@ -164,84 +164,76 @@ class TcpListenerThread(QThread):
         self._host = host
         self._port = port
         self._running = False
+        self._client_socket: socket.socket | None = None
+        self._write_lock = threading.Lock()
 
     def run(self) -> None:
         self._running = True
-        server: socket.socket | None = None
-        clients: list[socket.socket] = []
-        buffers: dict[socket.socket, bytes] = {}
-
         try:
-            server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            server.bind((self._host, self._port))
-            server.listen(5)
-            server.setblocking(False)
-            self.status_changed.emit(True, f"TCP listening on {self._host}:{self._port}")
+            self._client_socket = socket.create_connection((self._host, self._port), timeout=10)
+            self._client_socket.setblocking(False)
+            self.status_changed.emit(True, f"TCP connected to {self._host}:{self._port}")
 
-            while self._running:
-                watch = [server, *clients]
-                readable, _, exceptional = select.select(watch, [], watch, 0.5)
+            buffer = b""
+            while self._running and self._client_socket is not None:
+                readable, _, exceptional = select.select([self._client_socket], [], [self._client_socket], 0.5)
 
-                for sock in readable:
-                    if sock is server:
-                        client, addr = server.accept()
-                        client.setblocking(False)
-                        clients.append(client)
-                        buffers[client] = b""
-                        self.status_changed.emit(True, f"TCP client connected: {addr[0]}:{addr[1]}")
-                    else:
-                        try:
-                            data = sock.recv(4096)
-                        except OSError:
-                            data = b""
-
-                        if not data:
-                            buffers.pop(sock, None)
-                            if sock in clients:
-                                clients.remove(sock)
-                            try:
-                                sock.close()
-                            except OSError:
-                                pass
-                            continue
-
-                        buffers[sock] = buffers.get(sock, b"") + data
-                        while b"\n" in buffers[sock]:
-                            line, remaining = buffers[sock].split(b"\n", 1)
-                            buffers[sock] = remaining
-                            text = line.decode("utf-8", errors="ignore").strip()
-                            if text:
-                                self.line_received.emit(text)
-
-                for sock in exceptional:
-                    buffers.pop(sock, None)
-                    if sock in clients:
-                        clients.remove(sock)
+                if self._client_socket in readable:
                     try:
-                        sock.close()
-                    except OSError:
-                        pass
+                        data = self._client_socket.recv(4096)
+                    except OSError as exc:
+                        self.error.emit(f"TCP read error: {exc}")
+                        break
+
+                    if not data:
+                        self.status_changed.emit(False, "TCP disconnected")
+                        break
+
+                    buffer += data
+                    while b"\n" in buffer:
+                        line, buffer = buffer.split(b"\n", 1)
+                        text = line.decode("utf-8", errors="ignore").strip()
+                        if text:
+                            self.line_received.emit(text)
+
+                if self._client_socket in exceptional:
+                    self.error.emit("TCP socket error")
+                    break
 
         except OSError as exc:
-            self.error.emit(f"TCP listener error: {exc}")
+            self.error.emit(f"TCP connection failed: {exc}")
         finally:
-            for client in clients:
+            if self._client_socket is not None:
                 try:
-                    client.close()
+                    self._client_socket.close()
                 except OSError:
                     pass
-            if server is not None:
-                try:
-                    server.close()
-                except OSError:
-                    pass
-            self.status_changed.emit(False, "TCP listener stopped")
+                self._client_socket = None
+            self.status_changed.emit(False, "TCP stopped")
             self._running = False
 
     def stop(self) -> None:
         self._running = False
+        if self._client_socket is not None:
+            try:
+                self._client_socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            try:
+                self._client_socket.close()
+            except OSError:
+                pass
         self.wait(1500)
+
+    def send_line(self, line: str) -> bool:
+        if self._client_socket is None:
+            return False
+        with self._write_lock:
+            try:
+                self._client_socket.sendall((line.rstrip("\r\n") + "\n").encode("utf-8"))
+                return True
+            except OSError:
+                return False
 
 
 class TelemetryIngestManager(QObject):
@@ -278,7 +270,7 @@ class TelemetryIngestManager(QObject):
 
     def start_tcp(self, host: str = "0.0.0.0", port: int = 9000) -> None:
         if self._tcp_thread and self._tcp_thread.isRunning():
-            self.connection_state.emit("tcp", True, "TCP listener already running")
+            self.connection_state.emit("tcp", True, "TCP session already running")
             return
 
         thread = TcpListenerThread(host=host, port=port)
@@ -306,6 +298,21 @@ class TelemetryIngestManager(QObject):
 
     def has_serial_command_channel(self) -> bool:
         return bool(self._serial_thread and self._serial_thread.isRunning())
+
+    def send_tcp_command(self, line: str) -> bool:
+        if self._tcp_thread and self._tcp_thread.isRunning():
+            return self._tcp_thread.send_line(line)
+        return False
+
+    def has_tcp_command_channel(self) -> bool:
+        return bool(self._tcp_thread and self._tcp_thread.isRunning())
+
+    def send_command(self, line: str) -> bool:
+        if self.has_tcp_command_channel():
+            return self.send_tcp_command(line)
+        if self.has_serial_command_channel():
+            return self.send_serial_command(line)
+        return False
 
     def _handle_line(self, source: str, line: str) -> None:
         self.raw_line_received.emit(f"[{source}] {line}")

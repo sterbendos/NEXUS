@@ -2,6 +2,7 @@ from nexus.hardware.job_protocol import (
     ALLOWED_JOB_TYPES,
     JOB_SCHEMA_VERSION,
     build_job_command,
+    serialize_job_command,
     validate_job_payload,
 )
 
@@ -12,6 +13,12 @@ def test_build_job_command_includes_schema_and_kind():
     assert job["kind"] == "job_submit"
     assert job["job_id"] == "job-1"
     assert job["job_type"] == "device_inventory"
+
+
+def test_serialize_job_command_is_compact_json():
+    line = serialize_job_command("job-9", "hardware_self_test")
+    assert f'"schema":"{JOB_SCHEMA_VERSION}"' in line
+    assert " " not in line
 
 
 def test_validate_job_payload_accepts_allowlisted_job():

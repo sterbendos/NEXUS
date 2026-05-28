@@ -27,6 +27,8 @@ static char activeJobRequestedBy[24] = "";
 static uint32_t activeJobStartedMs = 0;
 static char serialCommandBuffer[256];
 static uint16_t serialCommandBufferLen = 0;
+static char tcpCommandBuffers[3][256];
+static uint16_t tcpCommandBufferLens[3] = {0, 0, 0};
 
 static bool commandContainsKey(const String& line, const char* key, String& valueOut) {
   const String needle = String("\"") + key + "\"";
@@ -96,7 +98,10 @@ static void emitJobTelemetry(
   telemetryGetMac(macText, sizeof(macText));
 
   auto writeLine = [&](Print& out) {
-    out.print("{\"timestamp\":\"");
+    out.print("{\"schema\":\"");
+    out.print(JOB_SCHEMA);
+    out.print("\",\"kind\":\"job_status\"");
+    out.print(",\"timestamp\":\"");
     out.print((unsigned long)millis());
     out.print("\",\"device_id\":\"");
     jsonEscapedPrint(out, telemetryDeviceId);
@@ -249,8 +254,8 @@ static void maybeProcessQueuedJobs() {
   }
 }
 
-static void handleRemoteCommand(const String& line) {
-  if (line.indexOf(String("\"schema\":\"") + JOB_SCHEMA + "\"") < 0) return;
+static void handleRemoteCommandLine(const String& line) {
+  if (line.indexOf(JOB_SCHEMA) < 0) return;
 
   String kind;
   if (!commandContainsKey(line, "kind", kind)) return;
@@ -292,14 +297,14 @@ static void handleRemoteCommand(const String& line) {
   }
 }
 
-static void pollRemoteCommands() {
+static void pollSerialRemoteCommands() {
   while (Serial.available() > 0) {
     char c = (char)Serial.read();
     if (c == '\n') {
       serialCommandBuffer[serialCommandBufferLen] = 0;
       String line(serialCommandBuffer);
       line.trim();
-      if (line.length() > 0) handleRemoteCommand(line);
+      if (line.length() > 0) handleRemoteCommandLine(line);
       serialCommandBufferLen = 0;
       serialCommandBuffer[0] = 0;
       continue;
@@ -314,7 +319,39 @@ static void pollRemoteCommands() {
   }
 }
 
+static void pollTcpRemoteCommands() {
+  for (uint8_t i = 0; i < 3; i++) {
+    WiFiClient& client = telemetryClients[i];
+    if (!client || !client.connected()) {
+      tcpCommandBufferLens[i] = 0;
+      tcpCommandBuffers[i][0] = 0;
+      continue;
+    }
+
+    while (client.available() > 0) {
+      char c = (char)client.read();
+      if (c == '\n') {
+        tcpCommandBuffers[i][tcpCommandBufferLens[i]] = 0;
+        String line(tcpCommandBuffers[i]);
+        line.trim();
+        if (line.length() > 0) handleRemoteCommandLine(line);
+        tcpCommandBufferLens[i] = 0;
+        tcpCommandBuffers[i][0] = 0;
+        continue;
+      }
+      if (c == '\r') continue;
+      if (tcpCommandBufferLens[i] < sizeof(tcpCommandBuffers[i]) - 1) {
+        tcpCommandBuffers[i][tcpCommandBufferLens[i]++] = c;
+      } else {
+        tcpCommandBufferLens[i] = 0;
+        tcpCommandBuffers[i][0] = 0;
+      }
+    }
+  }
+}
+
 static void jobControlTick() {
-  pollRemoteCommands();
+  pollSerialRemoteCommands();
+  pollTcpRemoteCommands();
   maybeProcessQueuedJobs();
 }

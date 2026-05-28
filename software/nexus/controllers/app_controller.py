@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import QFileDialog
 from nexus.ai.ai_connector import AIConnector
 from nexus.ai.chat_connector import ChatConnector
 from nexus.db.database import DatabaseManager
-from nexus.hardware.job_protocol import JOB_SCHEMA_VERSION, validate_job_payload
+from nexus.hardware.job_protocol import JOB_SCHEMA_VERSION, serialize_job_command, validate_job_payload
 from nexus.hardware.telemetry_ingest import TelemetryIngestManager
 from nexus.notes.notes_service import NotesService
 from nexus.ui.main_window import MainWindow
@@ -205,7 +205,12 @@ class AppController(QObject):
         self.ingest.start_serial(port=port, baudrate=baudrate)
 
     def _start_tcp_listener(self) -> None:
-        host = self.window.ingest_tab.tcp_host_input.text().strip() or "0.0.0.0"
+        host = self.window.ingest_tab.tcp_host_input.text().strip()
+        if not host:
+            host = str(self._last_telemetry.get("network", {}).get("ip", "")).strip()
+        if not host:
+            self.window.ingest_tab.set_status("TCP host is required", ok=False)
+            return
         port_text = self.window.ingest_tab.tcp_port_input.text().strip()
         try:
             port = int(port_text) if port_text else 9000
@@ -213,7 +218,7 @@ class AppController(QObject):
             self.window.ingest_tab.set_status("Invalid TCP port", ok=False)
             return
 
-        self.window.ingest_tab.set_status("Starting TCP listener...", ok=None)
+        self.window.ingest_tab.set_status("Starting TCP session...", ok=None)
         self.ingest.start_tcp(host=host, port=port)
 
     def _on_connection_state(self, channel: str, connected: bool, message: str) -> None:
@@ -328,8 +333,8 @@ class AppController(QObject):
             self.window.ai_tab.set_status("No approved hardware jobs to dispatch", "bad")
             return
 
-        if not self.ingest.has_serial_command_channel():
-            self.window.ai_tab.set_status("Serial command channel is not available", "bad")
+        if not (self.ingest.has_tcp_command_channel() or self.ingest.has_serial_command_channel()):
+            self.window.ai_tab.set_status("No hardware command channel is connected", "bad")
             return
 
         delivered = 0
@@ -339,8 +344,14 @@ class AppController(QObject):
             payload.setdefault("kind", "job_submit")
             payload.setdefault("requested_by", "nexus-ai")
             payload.setdefault("audit_mode", True)
-            line = json.dumps(payload, ensure_ascii=True)
-            if self.ingest.send_serial_command(line):
+            line = serialize_job_command(
+                job_id=str(payload.get("job_id", "")),
+                job_type=str(payload.get("job_type", "")),
+                requested_by=str(payload.get("requested_by", "nexus-ai")),
+                audit_mode=bool(payload.get("audit_mode", True)),
+                arguments=payload.get("arguments") if isinstance(payload.get("arguments"), dict) else {},
+            )
+            if self.ingest.send_command(line):
                 delivered += 1
                 self.db.store_anomaly(
                     event_type="job_dispatch",

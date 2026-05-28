@@ -41,6 +41,12 @@ The ingest layer accepts flexible JSON and normalizes into:
 - `nexus/ui/main_window.py`: QMainWindow + sidebar navigation + stacked tabs
 - `nexus/controllers/app_controller.py`: signal wiring and app orchestration
 
+## Hardware Job Contract
+- Schema: `nexus.remote.job.v1`
+- Transport: serial or TCP session to the device
+- Job payloads are allowlisted and audited before dispatch
+- Firmware emits queued/running/completed/blocked/failed job telemetry back into the same stream
+
 ## Tabs
 1. Dashboard
 2. Data Ingest
