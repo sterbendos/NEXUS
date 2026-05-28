@@ -31,8 +31,33 @@ static const char* fake_ssids[] = {
   "NSA_LISTENING_POST"
 };
 
+static String dynamic_ssids[20];
+static int dynamic_ssid_count = 0;
+
 static void startWifiAttack() {
   if (!wifiAttackActive) {
+    // Attempt to load from SD
+    dynamic_ssid_count = 0;
+    if (sdReady) {
+      File f = SD.open("/ssids.txt");
+      if (f) {
+        while (f.available() && dynamic_ssid_count < 20) {
+          String s = f.readStringUntil('\n');
+          s.trim();
+          if (s.length() > 0) {
+            dynamic_ssids[dynamic_ssid_count++] = s;
+          }
+        }
+        f.close();
+      }
+    }
+    
+    // Fallback to defaults
+    if (dynamic_ssid_count == 0) {
+      for (int i=0; i<7; i++) dynamic_ssids[i] = fake_ssids[i];
+      dynamic_ssid_count = 7;
+    }
+
     WiFi.mode(WIFI_STA);
     esp_wifi_set_promiscuous(true);
     wifiAttackActive = true;
@@ -57,7 +82,7 @@ static void wifiAttackStep() {
   }
   beacon_frame[10] &= 0xFE; // Ensure unicast MAC
 
-  String current_ssid = fake_ssids[random(7)];
+  String current_ssid = dynamic_ssids[random(dynamic_ssid_count)];
   int ssid_len = current_ssid.length();
   
   uint8_t packet[128];

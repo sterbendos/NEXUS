@@ -16,7 +16,12 @@ static void sendRemoteExec(const char* app_name, const char* args) {
              
     Serial.println(json_buf);
     
-    // Also try to send via TCP if WiFi is connected (future feature expansion)
+    // Send over TCP if connected
+    for (uint8_t i = 0; i < 3; i++) {
+        if (telemetryClients[i] && telemetryClients[i].connected()) {
+            telemetryClients[i].println(json_buf);
+        }
+    }
     
     delay(1000);
 }

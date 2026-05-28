@@ -34,27 +34,56 @@ static void executeDuckyScript(const char* filepath) {
   while(f.available()) {
      String line = f.readStringUntil('\n');
      line.trim();
-     if(line.length() == 0) continue;
+     if(line.length() == 0 || line.startsWith("REM ")) continue;
      
      if (line.startsWith("STRING ")) {
          Keyboard.print(line.substring(7));
      } else if (line.startsWith("DELAY ")) {
          delay(line.substring(6).toInt());
-     } else if (line == "ENTER") {
-         Keyboard.write(KEY_RETURN);
-     } else if (line == "GUI r") {
-         Keyboard.press(KEY_LEFT_GUI);
-         Keyboard.press('r');
-         delay(100);
+     } else {
+         // Advanced Key Parsing
+         // Example: GUI r, CTRL ALT DELETE, SHIFT ENTER
+         int startIdx = 0;
+         while(startIdx < line.length()) {
+             int spaceIdx = line.indexOf(' ', startIdx);
+             if (spaceIdx == -1) spaceIdx = line.length();
+             String keyStr = line.substring(startIdx, spaceIdx);
+             keyStr.toUpperCase();
+             
+             if (keyStr == "ENTER") Keyboard.press(KEY_RETURN);
+             else if (keyStr == "GUI" || keyStr == "WINDOWS") Keyboard.press(KEY_LEFT_GUI);
+             else if (keyStr == "SHIFT") Keyboard.press(KEY_LEFT_SHIFT);
+             else if (keyStr == "CTRL" || keyStr == "CONTROL") Keyboard.press(KEY_LEFT_CTRL);
+             else if (keyStr == "ALT") Keyboard.press(KEY_LEFT_ALT);
+             else if (keyStr == "TAB") Keyboard.press(KEY_TAB);
+             else if (keyStr == "SPACE") Keyboard.press(' ');
+             else if (keyStr == "UPARROW" || keyStr == "UP") Keyboard.press(KEY_UP_ARROW);
+             else if (keyStr == "DOWNARROW" || keyStr == "DOWN") Keyboard.press(KEY_DOWN_ARROW);
+             else if (keyStr == "LEFTARROW" || keyStr == "LEFT") Keyboard.press(KEY_LEFT_ARROW);
+             else if (keyStr == "RIGHTARROW" || keyStr == "RIGHT") Keyboard.press(KEY_RIGHT_ARROW);
+             else if (keyStr == "ESCAPE" || keyStr == "ESC") Keyboard.press(KEY_ESC);
+             else if (keyStr == "CAPSLOCK") Keyboard.press(KEY_CAPS_LOCK);
+             else if (keyStr == "DELETE" || keyStr == "DEL") Keyboard.press(KEY_DELETE);
+             else if (keyStr == "F1") Keyboard.press(KEY_F1);
+             else if (keyStr == "F2") Keyboard.press(KEY_F2);
+             else if (keyStr == "F3") Keyboard.press(KEY_F3);
+             else if (keyStr == "F4") Keyboard.press(KEY_F4);
+             else if (keyStr == "F5") Keyboard.press(KEY_F5);
+             else if (keyStr == "F10") Keyboard.press(KEY_F10);
+             else if (keyStr == "F11") Keyboard.press(KEY_F11);
+             else if (keyStr == "F12") Keyboard.press(KEY_F12);
+             else if (keyStr.length() == 1) {
+                 // Single character like 'r' in "GUI r"
+                 char c = line.charAt(startIdx); 
+                 Keyboard.press(c);
+             }
+             startIdx = spaceIdx + 1;
+         }
+         
+         delay(25); // Small hold
          Keyboard.releaseAll();
-     } else if (line == "TAB") {
-         Keyboard.write(KEY_TAB);
-     } else if (line == "UPARROW") {
-         Keyboard.write(KEY_UP_ARROW);
-     } else if (line == "DOWNARROW") {
-         Keyboard.write(KEY_DOWN_ARROW);
      }
-     delay(50); // Small inter-instruction delay
+     delay(50); // Inter-instruction delay
   }
   f.close();
   

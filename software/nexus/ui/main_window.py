@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QStackedWidget,
     QVBoxLayout,
     QWidget,
+    QGraphicsOpacityEffect,
 )
 
 from nexus.controllers.navigation_controller import NavigationController
@@ -34,6 +35,7 @@ class MainWindow(QMainWindow):
         self.resize(1480, 900)
         self._build_ui()
         self.setStyleSheet(DARK_THEME_STYLESHEET)
+        self._init_status_bar()
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -178,7 +180,63 @@ class MainWindow(QMainWindow):
             self.section_title.setText(title)
             self.section_subtitle.setText(subtitle)
 
+            # Animate page switch fade-in
+            widget = self.stack.widget(index)
+            if widget:
+                # Set graphic opacity effect
+                effect = QGraphicsOpacityEffect(widget)
+                widget.setGraphicsEffect(effect)
+                
+                self._fade_anim = QPropertyAnimation(effect, b"opacity")
+                self._fade_anim.setDuration(250)
+                self._fade_anim.setStartValue(0.0)
+                self._fade_anim.setEndValue(1.0)
+                self._fade_anim.setEasingCurve(QEasingCurve.Type.OutQuad)
+                
+                # Clean up effect on complete to restore full interactivity
+                self._fade_anim.finished.connect(lambda w=widget: w.setGraphicsEffect(None))
+                self._fade_anim.start()
+
+    def _init_status_bar(self) -> None:
+        sb = self.statusBar()
+        sb.setStyleSheet(
+            "QStatusBar { background-color: #090f17; color: #6f8ca8; font-size: 11px; border-top: 1px solid #1f3448; }"
+            "QStatusBar::item { border: none; }"
+        )
+        self._sb_serial = QLabel("Serial: ● Disconnected")
+        self._sb_tcp = QLabel("TCP: ● Disconnected")
+        self._sb_rows = QLabel("DB: 0 rows")
+        self._sb_model = QLabel("Model: gemma3:4b")
+        sb.addWidget(self._sb_serial)
+        sb.addWidget(QLabel("|"))
+        sb.addWidget(self._sb_tcp)
+        sb.addWidget(QLabel("|"))
+        sb.addWidget(self._sb_rows)
+        sb.addPermanentWidget(self._sb_model)
+
+    def update_status_bar(
+        self,
+        serial_connected: bool | None = None,
+        serial_msg: str = "",
+        tcp_connected: bool | None = None,
+        tcp_msg: str = "",
+        db_rows: int | None = None,
+        model: str = "",
+    ) -> None:
+        """Update the persistent status bar labels."""
+        if serial_connected is not None:
+            icon = "●" if serial_connected else "○"
+            self._sb_serial.setText(f"Serial: {icon} {serial_msg or ('Connected' if serial_connected else 'Disconnected')}")
+        if tcp_connected is not None:
+            icon = "●" if tcp_connected else "○"
+            self._sb_tcp.setText(f"TCP: {icon} {tcp_msg or ('Connected' if tcp_connected else 'Disconnected')}")
+        if db_rows is not None:
+            self._sb_rows.setText(f"DB: {db_rows:,} rows")
+        if model:
+            self._sb_model.setText(f"Model: {model}")
+
     def closeEvent(self, event) -> None:  # type: ignore[override]
         if callable(self.on_close):
             self.on_close()
         super().closeEvent(event)
+

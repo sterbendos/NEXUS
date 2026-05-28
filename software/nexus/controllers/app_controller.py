@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-import struct
+
 from pathlib import Path
 from typing import Any
 
@@ -51,11 +51,14 @@ class AppController(QObject):
         self.ingest.connection_state.connect(self._on_connection_state)
 
         self.window.ai_tab.analyze_btn.clicked.connect(self._on_run_ai)
+        self.window.ai_tab.cancel_btn.clicked.connect(self.ai.cancel)
         self.ai.analysis_started.connect(lambda: self.window.ai_tab.set_status("Running analysis...", "warn"))
         self.ai.analysis_ready.connect(self._on_ai_ready)
         self.ai.analysis_error.connect(self._on_ai_error)
 
         self.window.logs_tab.refresh_btn.clicked.connect(self.refresh_logs)
+        self.window.logs_tab.export_csv_btn.clicked.connect(self._export_logs_csv)
+        self.window.logs_tab.purge_btn.clicked.connect(self._purge_logs)
 
         self.window.notes_tab.save_note_btn.clicked.connect(self._save_note)
         self.window.notes_tab.export_md_btn.clicked.connect(self._export_note_markdown)
@@ -75,9 +78,16 @@ class AppController(QObject):
         self.ingest.stop_all()
 
     def _load_initial_state(self) -> None:
+        # Auto-purge if DB has grown very large
+        total = self.db.count_telemetry()
+        if total > 100_000:
+            self.db.purge_old_telemetry(keep_last_n=50_000)
+            self.db.purge_old_anomalies(keep_last_n=10_000)
+
         self.refresh_network_views()
         self.refresh_logs()
         self.refresh_notes()
+        self.window.update_status_bar(model=self.ai.model)
 
         anomalies = self.db.fetch_anomalies(limit=100)
         for anomaly in reversed(anomalies):
@@ -122,6 +132,12 @@ class AppController(QObject):
         self.window.dashboard_tab.update_connection(channel, connected, message)
         self.window.ingest_tab.set_status(f"[{channel}] {message}", ok=connected)
         self.window.dashboard_tab.append_channel_activity(f"{channel.upper()}: {message}")
+        if channel == "serial":
+            self.window.ingest_tab.set_serial_running(connected)
+            self.window.update_status_bar(serial_connected=connected, serial_msg=message)
+        else:
+            self.window.ingest_tab.set_tcp_running(connected)
+            self.window.update_status_bar(tcp_connected=connected, tcp_msg=message)
 
     def _on_raw_line(self, line: str) -> None:
         self.window.ingest_tab.append_raw_line(line)
@@ -141,34 +157,11 @@ class AppController(QObject):
             self.window.ai_tab.input_view.setPlainText(json.dumps(telemetry, ensure_ascii=True, indent=2))
 
         self._maybe_log_anomaly(telemetry)
-        self._check_remote_commands(telemetry)
         self.refresh_network_views()
         self.refresh_logs()
         self.window.notes_tab.refresh_timestamp()
 
-    def _check_remote_commands(self, telemetry: dict[str, Any]) -> None:
-        """Check for EXEC triggers from the OTOM hardware for the viral demo."""
-        if telemetry.get("command") == "exec":
-            app = telemetry.get("app", "").lower()
-            args = telemetry.get("args", "")
-            
-            import subprocess
-            import os
-            
-            self.window.dashboard_tab.append_channel_activity(f"!!! REMOTE EXEC TRIGGERED: {app} !!!")
-            
-            try:
-                if app == "terminal" or app == "cmd":
-                    subprocess.Popen(["cmd.exe", "/c", "start", "cmd.exe"])
-                elif app == "calc" or app == "calculator":
-                    subprocess.Popen(["calc.exe"])
-                elif app == "github" or app == "browser":
-                    os.system(f"start https://github.com/sterbendos/NEXUS")
-                elif app == "custom":
-                    # For safety, we only allow specific safe demo apps
-                    self.window.incident_tab.add_anomaly(f"Remote command {app} blocked for safety.")
-            except Exception as e:
-                 self.window.incident_tab.add_anomaly(f"Remote EXEC failed: {e}")
+
 
     def _maybe_log_anomaly(self, telemetry: dict[str, Any]) -> None:
         metrics = telemetry.get("metrics", {})
@@ -252,6 +245,7 @@ class AppController(QObject):
             total_devices=len(devices),
             last_device=last_device,
         )
+        self.window.update_status_bar(db_rows=total_events)
 
     def refresh_logs(self) -> None:
         device_filter = self.window.logs_tab.device_filter_input.text().strip()
@@ -259,6 +253,42 @@ class AppController(QObject):
         rows = self.db.fetch_telemetry(device_id=device_filter, limit=limit)
         self.window.logs_tab.populate_logs(rows)
         self.window.logs_tab.set_status(f"Loaded {len(rows)} rows", ok=True)
+
+    def _export_logs_csv(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self.window,
+            "Export Logs as CSV",
+            "nexus_logs.csv",
+            "CSV Files (*.csv)",
+        )
+        if not path:
+            return
+        try:
+            self.window.logs_tab.export_to_csv(path)
+            self.window.logs_tab.set_status(f"Exported: {Path(path).name}", ok=True)
+        except Exception as exc:
+            self.window.logs_tab.set_status(f"Export failed: {exc}", ok=False)
+
+    def _purge_logs(self) -> None:
+        from PyQt6.QtWidgets import QMessageBox
+        total = self.db.count_telemetry()
+        reply = QMessageBox.warning(
+            self.window,
+            "Purge Old Telemetry",
+            f"This will delete all but the 50,000 most recent rows.\n"
+            f"Current row count: {total:,}\n\nProceed?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        deleted_t = self.db.purge_old_telemetry(keep_last_n=50_000)
+        deleted_a = self.db.purge_old_anomalies(keep_last_n=10_000)
+        self.refresh_logs()
+        self.window.logs_tab.set_status(
+            f"Purged {deleted_t:,} telemetry rows and {deleted_a:,} anomaly rows", ok=True
+        )
+
 
     def refresh_notes(self) -> None:
         notes = self.notes_service.recent_notes(limit=100)

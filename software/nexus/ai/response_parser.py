@@ -20,15 +20,27 @@ class ResponseParser:
 
         try:
             import re
-            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
-            if json_match:
-                parsed = json.loads(json_match.group(0))
+            # Find the first '{' and then scan for the matching closing '}'
+            # This handles nested dicts and trailing model commentary correctly.
+            start = response_text.find("{")
+            if start != -1:
+                depth = 0
+                end = start
+                for i, ch in enumerate(response_text[start:], start):
+                    if ch == "{":
+                        depth += 1
+                    elif ch == "}":
+                        depth -= 1
+                        if depth == 0:
+                            end = i
+                            break
+                parsed = json.loads(response_text[start : end + 1])
             else:
                 parsed = json.loads(response_text)
-            
+
             if not isinstance(parsed, dict):
                 parsed = {}
-        except (json.JSONDecodeError, ImportError):
+        except (json.JSONDecodeError, Exception):
             parsed = {}
 
         threat = str(parsed.get("threat_classification") or "Unknown")

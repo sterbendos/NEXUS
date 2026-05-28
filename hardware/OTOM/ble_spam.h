@@ -5,6 +5,7 @@
 #include <BLEUtils.h>
 #include <BLEServer.h>
 #include <BLEAdvertising.h>
+#include <esp_mac.h>
 
 static bool bleSpamActive = false;
 static uint32_t lastBleSpamMs = 0;
@@ -57,14 +58,14 @@ static void bleSpamStep() {
         strData += (char)ble_payloads[blePayloadIndex][i];
     }
     
-    oAdvertisementData.addData(strData);
+    oAdvertisementData.addData(String(strData.c_str()));
     pAdvertising->setAdvertisementData(oAdvertisementData);
     
     // Scramble MAC address for privacy and to bypass deduplication filters
     uint8_t rand_mac[6];
     for (int i=0; i<6; i++) rand_mac[i] = random(256);
     rand_mac[0] |= 0xC0; // Set static random bits
-    esp_base_mac_addr_set(rand_mac);
+    esp_iface_mac_addr_set(rand_mac, ESP_MAC_BT);
 
     pAdvertising->start();
     

@@ -49,8 +49,8 @@ void setup() {
   eyes.setDisplayColors(0, 1);
 
   sdReady  = mountSd();
-  nrf1Ready = radio1.begin();
-  nrf2Ready = radio2.begin();
+  nrf1Ready = radio1.begin();          // Radio 1 on FSPI (default SPI)
+  nrf2Ready = radio2.begin(&sdSPI);    // Radio 2 on HSPI (shared with SD, separate CSN)
   refreshStatus();
 
   memset(capturedSignals, 0, sizeof(capturedSignals));

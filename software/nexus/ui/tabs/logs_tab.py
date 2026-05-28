@@ -1,5 +1,6 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
+import csv
 import json
 
 from PyQt6.QtWidgets import (
@@ -21,6 +22,7 @@ from PyQt6.QtWidgets import (
 class LogsDatabaseTab(QWidget):
     def __init__(self) -> None:
         super().__init__()
+        self._current_rows: list[dict] = []
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -37,8 +39,12 @@ class LogsDatabaseTab(QWidget):
         self.limit_spin.setValue(200)
         filter_row = QHBoxLayout()
         self.refresh_btn = QPushButton("Run Query")
+        self.export_csv_btn = QPushButton("Export CSV")
+        self.purge_btn = QPushButton("Purge Old Rows…")
         self.status_label = QLabel("Ready")
         filter_row.addWidget(self.refresh_btn)
+        filter_row.addWidget(self.export_csv_btn)
+        filter_row.addWidget(self.purge_btn)
         filter_row.addWidget(self.status_label)
 
         filters_layout.addRow("Device Filter:", self.device_filter_input)
@@ -48,7 +54,9 @@ class LogsDatabaseTab(QWidget):
         table_group = QGroupBox("Telemetry Logs")
         table_layout = QVBoxLayout(table_group)
         self.logs_table = QTableWidget(0, 6)
-        self.logs_table.setHorizontalHeaderLabels(["ID", "Timestamp", "Device", "Source", "Channel", "Payload Preview"])
+        self.logs_table.setHorizontalHeaderLabels(
+            ["ID", "Timestamp", "Device", "Source", "Channel", "Payload Preview"]
+        )
         self.logs_table.horizontalHeader().setStretchLastSection(True)
         self.logs_table.setAlternatingRowColors(True)
         self.logs_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -64,10 +72,10 @@ class LogsDatabaseTab(QWidget):
         self.status_label.style().polish(self.status_label)
 
     def populate_logs(self, logs: list[dict]) -> None:
+        self._current_rows = logs
         self.logs_table.setRowCount(len(logs))
         for row_index, row in enumerate(logs):
-            payload_preview = json.dumps(row.get("payload", {}), ensure_ascii=True)
-            payload_preview = payload_preview[:120]
+            payload_preview = json.dumps(row.get("payload", {}), ensure_ascii=True)[:120]
             values = [
                 str(row.get("id", "")),
                 str(row.get("timestamp", "")),
@@ -78,3 +86,18 @@ class LogsDatabaseTab(QWidget):
             ]
             for col_index, value in enumerate(values):
                 self.logs_table.setItem(row_index, col_index, QTableWidgetItem(value))
+
+    def export_to_csv(self, path: str) -> None:
+        """Write the currently displayed rows to a CSV file."""
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["ID", "Timestamp", "Device", "Source", "Channel", "Payload"])
+            for row in self._current_rows:
+                writer.writerow([
+                    row.get("id", ""),
+                    row.get("timestamp", ""),
+                    row.get("device_id", ""),
+                    row.get("source", ""),
+                    row.get("channel", ""),
+                    json.dumps(row.get("payload", {}), ensure_ascii=True),
+                ])

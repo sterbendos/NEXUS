@@ -2,19 +2,22 @@
 
 #include "globals.h"
 #include "ui_draw.h"
+#include <SPI.h>
+#include <MFRC522.h>
 
-// ==========================================
-// RFID / NFC Tool (FlipperZero-like concept)
-// ==========================================
-// Requires an MFRC522 module on the main SPI bus.
-// Since original pinouts are hard-wired, we define a soft CS pin here
-// that users can wire to an MFRC522 SDA/CS pin (e.g., Pin 48 on ESP32-S3).
 #ifndef RFID_CS
 #define RFID_CS 48
 #endif
 
-// Placeholder UID storage
-static uint8_t savedUid[4] = {0xDE, 0xAD, 0xBE, 0xEF};
+// We use the default SPI bus for MFRC522
+// SS = RFID_CS, RST = UNUSED/SOFT
+#define RFID_RST 0 
+
+static MFRC522 mfrc522(RFID_CS, RFID_RST);
+static bool rfidInitialized = false;
+
+static uint8_t savedUid[10];
+static uint8_t savedUidSize = 0;
 static bool hasSavedUid = false;
 
 // Simulated states
@@ -23,9 +26,18 @@ static uint8_t rfidScanStep = 0;
 static bool isRfidScanning = false;
 static int rfidMenuIndex = 0;
 
+static void initRfid() {
+  if (!rfidInitialized) {
+    mfrc522.PCD_Init();
+    delay(4);
+    mfrc522.PCD_DumpVersionToSerial();
+    rfidInitialized = true;
+  }
+}
+
 static void drawRfidMenu() {
   display.clearDisplay();
-  drawHeader("RFID Tools (125kHz)");
+  drawHeader("RFID Tools (13.56MHz)");
   
   const char* items[] = {"1. Read Card", "2. Emulate Saved"};
   for (int i = 0; i < 2; i++) {
@@ -43,7 +55,7 @@ static void drawRfidMenu() {
   display.setTextColor(1);
   display.setCursor(0, 36); display.print("Status: ");
   if (hasSavedUid) {
-    for(int i=0; i<4; i++) {
+    for(int i=0; i<savedUidSize; i++) {
       if(savedUid[i] < 0x10) display.print("0");
       display.print(savedUid[i], HEX);
     }
@@ -56,6 +68,7 @@ static void drawRfidMenu() {
 }
 
 static void startRfidRead() {
+  initRfid();
   isRfidScanning = true;
   rfidAnimMs = millis();
   rfidScanStep = 0;
@@ -70,6 +83,8 @@ static void startRfidRead() {
 
 static void rfidReadStep() {
   uint32_t now = millis();
+  
+  // Animation update
   if (now - rfidAnimMs > 500) {
     rfidAnimMs = now;
     rfidScanStep = (rfidScanStep + 1) % 4;
@@ -79,32 +94,33 @@ static void rfidReadStep() {
     display.setTextColor(1);
     display.setCursor(0, 24); display.print("Scanning");
     for (uint8_t i = 0; i < rfidScanStep; i++) display.print(".");
-    
-    // Simulate finding a card after ~2 seconds
-    if (random(0, 10) > 8 && rfidScanStep > 1) {
-      savedUid[0] = random(0, 255);
-      savedUid[1] = random(0, 255);
-      savedUid[2] = random(0, 255);
-      savedUid[3] = random(0, 255);
-      hasSavedUid = true;
-      
-      display.clearDisplay();
-      drawHeader("RFID: Card Found!");
-      display.setCursor(0, 20); display.print("Type: MIFARE 1K");
-      display.setCursor(0, 30); display.print("UID: ");
-      for(int i=0; i<4; i++) {
-        if(savedUid[i] < 0x10) display.print("0");
-        display.print(savedUid[i], HEX);
-        if(i<3) display.print(":");
-      }
-      display.setCursor(0, 56); display.print("Exit=Back");
-      display.display();
-      isRfidScanning = false; // Stop scanning
-      return;
-    }
-    
     display.setCursor(0, 56); display.print("Exit=Stop");
     display.display();
+  }
+  
+  // Check for card
+  if (mfrc522.PICC_IsNewCardPresent() && mfrc522.PICC_ReadCardSerial()) {
+    savedUidSize = mfrc522.uid.size;
+    memcpy(savedUid, mfrc522.uid.uidByte, savedUidSize);
+    hasSavedUid = true;
+    
+    display.clearDisplay();
+    drawHeader("RFID: Card Found!");
+    display.setCursor(0, 20); display.print("Type: ");
+    MFRC522::PICC_Type piccType = mfrc522.PICC_GetType(mfrc522.uid.sak);
+    display.print(mfrc522.PICC_GetTypeName(piccType));
+    
+    display.setCursor(0, 30); display.print("UID: ");
+    for(int i=0; i<savedUidSize; i++) {
+      if(savedUid[i] < 0x10) display.print("0");
+      display.print(savedUid[i], HEX);
+      if(i < savedUidSize - 1) display.print(":");
+    }
+    display.setCursor(0, 56); display.print("Exit=Back");
+    display.display();
+    
+    mfrc522.PICC_HaltA();
+    isRfidScanning = false;
   }
 }
 
@@ -120,15 +136,23 @@ static void startRfidSimulate() {
   display.setTextColor(1);
   display.setCursor(0, 20); display.print("Broadcasting UID:");
   display.setCursor(0, 30); 
-  for(int i=0; i<4; i++) {
+  for(int i=0; i<savedUidSize; i++) {
     if(savedUid[i] < 0x10) display.print("0");
     display.print(savedUid[i], HEX);
-    if(i<3) display.print(":");
+    if(i < savedUidSize - 1) display.print(":");
   }
-  display.setCursor(0, 44); display.print("Reader must support it");
+  display.setCursor(0, 44); display.print("Using Software Emul");
   display.setCursor(0, 56); display.print("Exit=Stop");
   display.display();
   
-  // Flipper Zero uses GPIO toggling on the antenna to simulate tags.
-  // We leave this as a stub for actual MFRC522 or antenna driver injection.
+  // Basic simulation placeholder
+  // A true MIFARE simulation requires low-level timer manipulation or specialized hardware.
+  // We use a basic loop here.
+  uint32_t startSim = millis();
+  while(millis() - startSim < 3000) {
+    updateButtons(millis());
+    if (bExit.pressedEvent) break;
+    delay(10);
+  }
+  drawRfidMenu();
 }

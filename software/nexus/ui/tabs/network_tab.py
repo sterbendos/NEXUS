@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -26,10 +26,8 @@ class NetworkMonitorTab(QWidget):
         summary_layout = QFormLayout(summary_group)
         self.total_devices = QLabel("0")
         self.total_events = QLabel("0")
-        self.http_meta = QLabel("HTTP metadata placeholder")
         summary_layout.addRow("Discovered Devices:", self.total_devices)
         summary_layout.addRow("Telemetry Events:", self.total_events)
-        summary_layout.addRow("HTTP Metadata:", self.http_meta)
 
         table_group = QGroupBox("IP / Device Discovery")
         table_layout = QVBoxLayout(table_group)

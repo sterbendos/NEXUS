@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import sqlite3
@@ -282,3 +282,39 @@ class DatabaseManager:
                 (max(1, min(limit, 1000)),),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def purge_old_telemetry(self, keep_last_n: int = 50_000) -> int:
+        """Delete all but the *keep_last_n* most recent telemetry rows.
+
+        Returns the number of rows deleted.
+        """
+        keep_last_n = max(1, keep_last_n)
+        with self._lock, self._connect() as conn:
+            deleted = conn.execute(
+                """
+                DELETE FROM telemetry_logs
+                WHERE id NOT IN (
+                    SELECT id FROM telemetry_logs ORDER BY id DESC LIMIT ?
+                )
+                """,
+                (keep_last_n,),
+            ).rowcount
+        return deleted
+
+    def purge_old_anomalies(self, keep_last_n: int = 10_000) -> int:
+        """Delete all but the *keep_last_n* most recent anomaly rows.
+
+        Returns the number of rows deleted.
+        """
+        keep_last_n = max(1, keep_last_n)
+        with self._lock, self._connect() as conn:
+            deleted = conn.execute(
+                """
+                DELETE FROM anomaly_logs
+                WHERE id NOT IN (
+                    SELECT id FROM anomaly_logs ORDER BY id DESC LIMIT ?
+                )
+                """,
+                (keep_last_n,),
+            ).rowcount
+        return deleted

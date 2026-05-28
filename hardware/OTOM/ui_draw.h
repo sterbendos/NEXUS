@@ -6,12 +6,18 @@
 // Drawing helpers
 // =============================
 static void drawHeader(const char* title) {
-  display.fillRect(0, 0, 128, 10, 0);
-  display.setCursor(0, 0);
+  // Bold, inverted header bar (Flipper Zero style)
+  display.fillRect(0, 0, 128, 11, 1);
+  display.setCursor(2, 2);
   display.setTextSize(1);
-  display.setTextColor(1);
+  display.setTextColor(0); // Black text on white header
   display.print(title);
-  display.drawLine(0, 10, 127, 10, 1);
+  
+  // Status indicator area
+  if (sdReady) {
+    display.setCursor(114, 2);
+    display.print("SD");
+  }
 }
 
 static void drawMenu() {
@@ -19,30 +25,45 @@ static void drawMenu() {
   drawHeader("NEXUS Menu");
 
   const int y0 = 14;
-  const int lineH = 9;
+  const int lineH = 10;
 
   int start = menuIndex - 2;
   if (start < 0) start = 0;
-  if (start > (int)MAIN_COUNT - 5) start = (int)MAIN_COUNT - 5;
+  if (start > (int)MAIN_COUNT - 4) start = (int)MAIN_COUNT - 4; // Show 4 items max
   if (start < 0) start = 0;
 
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 4; i++) {
     int idx = start + i;
     if (idx >= (int)MAIN_COUNT) break;
 
     int y = y0 + i * lineH;
     bool sel = (idx == menuIndex);
 
-    if (sel) { display.fillRect(0, y - 1, 128, lineH, 1); display.setTextColor(0); }
-    else     { display.setTextColor(1); }
-
-    display.setCursor(2, y);
-    display.print(MAIN_ITEMS[idx]);
+    if (sel) { 
+        // Thick selection box with inverted text
+        display.fillRect(0, y, 128, lineH, 1); 
+        display.setTextColor(0); 
+        display.setCursor(4, y + 1);
+        display.print("> ");
+        display.print(MAIN_ITEMS[idx]);
+    } else { 
+        display.setTextColor(1); 
+        display.setCursor(10, y + 1);
+        display.print(MAIN_ITEMS[idx]);
+    }
   }
+
+  // Draw scrollbar
+  int scrollbarH = 40;
+  int thumbH = scrollbarH / MAIN_COUNT;
+  if (thumbH < 4) thumbH = 4;
+  int thumbY = y0 + (menuIndex * (scrollbarH - thumbH)) / (MAIN_COUNT - 1);
+  display.drawLine(126, y0, 126, y0 + scrollbarH, 1);
+  display.fillRect(125, thumbY, 3, thumbH, 1);
 
   display.setTextColor(1);
   display.setCursor(0, 56);
-  display.print("Up/Down Enter Exit");
+  display.print("Up/Dn:Sel  Ent:Go");
   display.display();
 }
 
@@ -57,16 +78,30 @@ static void drawJamMenu() {
     int y = y0 + i * lineH;
     bool sel = (i == jamIndex);
 
-    if (sel) { display.fillRect(0, y - 1, 128, lineH, 1); display.setTextColor(0); }
-    else     { display.setTextColor(1); }
-
-    display.setCursor(2, y);
-    display.print(JAM_ITEMS[i]);
+    if (sel) { 
+        display.fillRect(0, y, 128, lineH, 1); 
+        display.setTextColor(0); 
+        display.setCursor(4, y + 1);
+        display.print("> ");
+        display.print(JAM_ITEMS[i]);
+    } else { 
+        display.setTextColor(1); 
+        display.setCursor(10, y + 1);
+        display.print(JAM_ITEMS[i]);
+    }
   }
+
+  // Draw scrollbar
+  int scrollbarH = 40;
+  int thumbH = scrollbarH / JAM_COUNT;
+  if (thumbH < 4) thumbH = 4;
+  int thumbY = y0 + (jamIndex * (scrollbarH - thumbH)) / (JAM_COUNT - 1);
+  display.drawLine(126, y0, 126, y0 + scrollbarH, 1);
+  display.fillRect(125, thumbY, 3, thumbH, 1);
 
   display.setTextColor(1);
   display.setCursor(0, 56);
-  display.print("Up/Down Enter Exit");
+  display.print("Up/Dn:Sel  Ent:Go");
   display.display();
 }
 

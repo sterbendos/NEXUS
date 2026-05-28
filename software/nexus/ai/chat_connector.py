@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import requests
-from typing import Any, List, Dict
+from typing import Any
 
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
 
@@ -11,7 +11,7 @@ class ChatWorker(QThread):
     finished_signal = pyqtSignal(str)
     error_signal = pyqtSignal(str)
 
-    def __init__(self, base_url: str, model: str, messages: List[Dict[str, str]]) -> None:
+    def __init__(self, base_url: str, model: str, messages: list[dict[str, str]]) -> None:
         super().__init__()
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -56,7 +56,7 @@ class ChatConnector(QObject):
         super().__init__()
         self.base_url = base_url
         self.model = model
-        self.history: List[Dict[str, str]] = [
+        self.history: list[dict[str, str]] = [
             {
                 "role": "system",
                 "content": "You are NEXUS-AI, an expert cybersecurity assistant. You provide technical, precise information. "
@@ -75,6 +75,7 @@ class ChatConnector(QObject):
         self.thinking_started.emit()
 
         self._worker = ChatWorker(self.base_url, self.model, self.history)
+        self._worker.setParent(self) # Hard life-cycle lock
         self._worker.finished_signal.connect(self._on_worker_finished)
         self._worker.error_signal.connect(self._on_worker_error)
         self._worker.finished.connect(self._worker.deleteLater)

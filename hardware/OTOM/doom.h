@@ -100,13 +100,15 @@ static void doomStep() {
   
   if (levelComplete) {
     display.setTextSize(2);
+    display.setTextColor(1);
     display.setCursor(10, 20);
-    display.print("LEVEL");
-    display.setCursor(10, 40);
-    display.print("COMPLETE!");
+    display.print("VICTORY");
+    display.setTextSize(1);
+    display.setCursor(10, 45);
+    display.print("Press ENTER to exit");
     display.display();
     
-    if (bExit.stable == LOW || bEnter.stable == LOW) {
+    if (bEnter.stable == LOW || bExit.stable == LOW) {
       runMode = RUN_NONE;
       uiMode = UI_MENU;
       page = PAGE_NONE;

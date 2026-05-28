@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 
@@ -20,6 +20,8 @@ class DataIngestTab(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self._build_ui()
+        self.set_serial_running(False)
+        self.set_tcp_running(False)
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -85,6 +87,14 @@ class DataIngestTab(QWidget):
         layout.addLayout(controls)
         layout.addWidget(self.status_label)
         layout.addWidget(viewer_split, 1)
+
+    def set_serial_running(self, running: bool) -> None:
+        self.serial_start_btn.setEnabled(not running)
+        self.serial_stop_btn.setEnabled(running)
+
+    def set_tcp_running(self, running: bool) -> None:
+        self.tcp_start_btn.setEnabled(not running)
+        self.tcp_stop_btn.setEnabled(running)
 
     def append_raw_line(self, line: str) -> None:
         self.raw_view.appendPlainText(line)

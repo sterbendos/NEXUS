@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QVBoxLayout,
     QWidget,
+    QFrame,
 )
 
 
@@ -18,6 +19,7 @@ class ChatTab(QWidget):
 
     def __init__(self) -> None:
         super().__init__()
+        self._bubbles: list[QLabel] = []   # track all bubble labels for resize
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -30,14 +32,14 @@ class ChatTab(QWidget):
         self.scroll.setObjectName("ChatScroll")
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        
+
         self.chat_inner = QWidget()
         self.chat_inner.setObjectName("ChatContent")
         self.chat_layout = QVBoxLayout(self.chat_inner)
         self.chat_layout.setContentsMargins(10, 10, 10, 10)
         self.chat_layout.setSpacing(12)
         self.chat_layout.addStretch(1)
-        
+
         self.scroll.setWidget(self.chat_inner)
         layout.addWidget(self.scroll)
 
@@ -51,14 +53,14 @@ class ChatTab(QWidget):
         self.message_input = QLineEdit()
         self.message_input.setPlaceholderText("Ask NEXUS-AI a technical question...")
         self.message_input.returnPressed.connect(self._on_send)
-        
+
         self.send_btn = QPushButton("Send")
         self.send_btn.setFixedWidth(80)
         self.send_btn.clicked.connect(self._on_send)
-        
+
         self.clear_btn = QPushButton("Clear")
         self.clear_btn.setFixedWidth(80)
-        self.clear_btn.setObjectName("SecondaryBtn") # Optional secondary styling
+        self.clear_btn.setObjectName("SecondaryBtn")
         self.clear_btn.clicked.connect(self.clear_chat_signal.emit)
         self.clear_btn.clicked.connect(self.clear_display)
 
@@ -66,6 +68,18 @@ class ChatTab(QWidget):
         input_container.addWidget(self.send_btn)
         input_container.addWidget(self.clear_btn)
         layout.addLayout(input_container)
+
+    def _bubble_max_width(self) -> int:
+        """Return 75 % of the scroll viewport width, with a sensible fallback."""
+        w = self.scroll.width()
+        return int(w * 0.75) if w > 100 else 600
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Re-clamp all existing bubble max-widths when the panel is resized."""
+        super().resizeEvent(event)
+        max_w = self._bubble_max_width()
+        for bubble in self._bubbles:
+            bubble.setMaximumWidth(max_w)
 
     def _on_send(self) -> None:
         text = self.message_input.text().strip()
@@ -75,23 +89,29 @@ class ChatTab(QWidget):
             self.message_input.clear()
 
     def add_message(self, text: str, sender: str) -> None:
+        container = QFrame()
+        container_layout = QHBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+
         bubble = QLabel(text)
         bubble.setWordWrap(True)
-        bubble.setObjectName("ChatBubble")
-        
-        container = QHBoxLayout()
+        bubble.setTextFormat(Qt.TextFormat.MarkdownText)
+        bubble.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        bubble.setMaximumWidth(self._bubble_max_width())
+        self._bubbles.append(bubble)
+
         if sender == "user":
             bubble.setObjectName("UserBubble")
-            container.addStretch(1)
-            container.addWidget(bubble)
+            container_layout.addStretch(1)
+            container_layout.addWidget(bubble)
         else:
             bubble.setObjectName("AiBubble")
-            container.addWidget(bubble)
-            container.addStretch(1)
+            container_layout.addWidget(bubble)
+            container_layout.addStretch(1)
 
-        # Insert before the stretch at the bottom
-        self.chat_layout.insertLayout(self.chat_layout.count() - 1, container)
-        
+        # Insert before the bottom stretch
+        self.chat_layout.insertWidget(self.chat_layout.count() - 1, container)
+
         # Auto-scroll to bottom
         self.scroll.verticalScrollBar().setValue(self.scroll.verticalScrollBar().maximum())
 
@@ -104,17 +124,8 @@ class ChatTab(QWidget):
             self.send_btn.setEnabled(True)
 
     def clear_display(self) -> None:
-        # Remove all widgets from the layout except the stretch
         while self.chat_layout.count() > 1:
             item = self.chat_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-            elif item.layout():
-                # Correctly clean up sub-layouts (bubbles)
-                self._clear_layout(item.layout())
-
-    def _clear_layout(self, layout) -> None:
-        while layout.count():
-            child = layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+        self._bubbles.clear()

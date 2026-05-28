@@ -1,5 +1,6 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
+from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import (
     QFormLayout,
     QGroupBox,
@@ -16,7 +17,14 @@ from PyQt6.QtWidgets import (
 class AIAnalysisTab(QWidget):
     def __init__(self) -> None:
         super().__init__()
+        self._elapsed_seconds = 0
+        self._elapsed_timer = QTimer(self)
+        self._elapsed_timer.timeout.connect(self._tick_elapsed)
         self._build_ui()
+
+    def _tick_elapsed(self) -> None:
+        self._elapsed_seconds += 1
+        self.status_label.setText(f"Running analysis… {self._elapsed_seconds}s")
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -27,11 +35,20 @@ class AIAnalysisTab(QWidget):
         input_layout = QVBoxLayout(input_group)
         self.input_view = QPlainTextEdit()
         self.input_view.setPlaceholderText("Paste telemetry JSON or leave blank to analyze last ingested event")
+
+        btn_row = QHBoxLayout()
         self.analyze_btn = QPushButton("Run AI Analysis")
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.setObjectName("CancelBtn")
+        self.cancel_btn.setEnabled(False)
+        btn_row.addWidget(self.analyze_btn)
+        btn_row.addWidget(self.cancel_btn)
+
         self.status_label = QLabel("Idle")
         self.status_label.setProperty("status", "warn")
+
         input_layout.addWidget(self.input_view)
-        input_layout.addWidget(self.analyze_btn)
+        input_layout.addLayout(btn_row)
         input_layout.addWidget(self.status_label)
 
         output_group = QGroupBox("AI Output")
@@ -53,6 +70,17 @@ class AIAnalysisTab(QWidget):
         layout.addWidget(output_group, 1)
 
     def set_status(self, text: str, state: str = "warn") -> None:
+        # If we're starting analysis, kick off the elapsed timer
+        if state == "warn" and "Running" in text:
+            self._elapsed_seconds = 0
+            self._elapsed_timer.start(1000)
+            self.analyze_btn.setEnabled(False)
+            self.cancel_btn.setEnabled(True)
+        else:
+            self._elapsed_timer.stop()
+            self.analyze_btn.setEnabled(True)
+            self.cancel_btn.setEnabled(False)
+
         self.status_label.setText(text)
         self.status_label.setProperty("status", state)
         self.status_label.style().polish(self.status_label)

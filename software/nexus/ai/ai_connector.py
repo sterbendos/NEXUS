@@ -82,3 +82,11 @@ class AIConnector(QObject):
         self.analysis_error.emit(message)
         self._worker = None
 
+    def cancel(self) -> None:
+        """Terminate any running analysis worker and signal an error to the UI."""
+        if self._worker is not None and self._worker.isRunning():
+            self._worker.terminate()
+            self._worker.wait(500)
+            self._worker = None
+            self.analysis_error.emit("Analysis cancelled by user.")
+
