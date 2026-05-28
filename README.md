@@ -6,7 +6,7 @@
 
 [![ESP32-S3](https://img.shields.io/badge/Hardware-ESP32--S3-orange.svg)](#)
 [![Python Applications](https://img.shields.io/badge/NEXUS-Python%20%7C%20PyQt6-blue.svg)](#)
-[![License: CUSTOM](https://img.shields.io/badge/License-MIT-green.svg)](#)
+[![License: CUSTOM](https://img.shields.io/badge/License-CUSTOM-green.svg)](#)
 [![Status: Active](https://img.shields.io/badge/Status-Active%20Development-success.svg)](#)
 
 </div>
