@@ -119,9 +119,11 @@ class ChatTab(QWidget):
         if thinking:
             self.thinking_label.setText("NEXUS-AI is thinking...")
             self.send_btn.setEnabled(False)
+            self.message_input.setEnabled(False)
         else:
             self.thinking_label.setText("")
             self.send_btn.setEnabled(True)
+            self.message_input.setEnabled(True)
 
     def clear_display(self) -> None:
         while self.chat_layout.count() > 1:

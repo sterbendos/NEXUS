@@ -98,6 +98,8 @@ class DashboardTab(QWidget):
         chart.setPlotAreaBackgroundVisible(True)
         chart.legend().hide()
         chart.setMargins(QMargins(4, 4, 4, 4))
+        chart.setTitle("Events per Second")
+        chart.setTitleBrush(QColor("#9ab4cd"))
 
         x_axis = QValueAxis()
         x_axis.setRange(0, 59)
@@ -147,13 +149,14 @@ class DashboardTab(QWidget):
 
     def append_telemetry_preview(self, telemetry: dict) -> None:
         self._event_tick_count += 1
-        line = json.dumps(telemetry, ensure_ascii=True)
+        line = json.dumps(telemetry, ensure_ascii=False)
         self.preview.appendPlainText(line)
         if self.preview.blockCount() > 300:
             cursor = self.preview.textCursor()
             cursor.movePosition(QTextCursor.MoveOperation.Start)
             cursor.movePosition(QTextCursor.MoveOperation.Down, QTextCursor.MoveMode.KeepAnchor, 50)
             cursor.removeSelectedText()
+            self.preview.setTextCursor(cursor)
 
     def append_channel_activity(self, message: str) -> None:
         self.channel_activity.appendPlainText(message)
@@ -162,6 +165,7 @@ class DashboardTab(QWidget):
             cursor.movePosition(QTextCursor.MoveOperation.Start)
             cursor.movePosition(QTextCursor.MoveOperation.Down, QTextCursor.MoveMode.KeepAnchor, 50)
             cursor.removeSelectedText()
+            self.channel_activity.setTextCursor(cursor)
 
     def update_environment_summary(self, total_events: int, total_devices: int, last_device: str) -> None:
         self.total_events_label.setText(str(total_events))

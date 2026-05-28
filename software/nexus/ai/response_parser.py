@@ -19,9 +19,6 @@ class ResponseParser:
         response_text = str(response_body.get("response") or "").strip()
 
         try:
-            import re
-            # Find the first '{' and then scan for the matching closing '}'
-            # This handles nested dicts and trailing model commentary correctly.
             start = response_text.find("{")
             if start != -1:
                 depth = 0
@@ -40,7 +37,7 @@ class ResponseParser:
 
             if not isinstance(parsed, dict):
                 parsed = {}
-        except (json.JSONDecodeError, Exception):
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
             parsed = {}
 
         threat = str(parsed.get("threat_classification") or "Unknown")

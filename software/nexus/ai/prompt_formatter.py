@@ -9,7 +9,7 @@ class PromptFormatter:
 
     @staticmethod
     def build_prompt(log_payload: dict[str, Any]) -> str:
-        telemetry_json = json.dumps(log_payload, ensure_ascii=True, indent=2)
+        telemetry_json = json.dumps(log_payload, ensure_ascii=False, indent=2)
         return (
             "Analyze this cybersecurity telemetry and return valid JSON.\n"
             "Classification: [Name of the attack]\n"

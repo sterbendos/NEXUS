@@ -21,15 +21,29 @@ def temp_db(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_tables_created(temp_db):
-    with temp_db._connect() as conn:
-        tables = {row[0] for row in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()}
-    assert "telemetry_logs" in tables
-    assert "anomaly_logs" in tables
-    assert "ai_analysis" in tables
-    assert "notes" in tables
-    assert "evidence_tags" in tables
+    # Verify tables exist by storing and fetching from each
+    row_id = temp_db.store_telemetry({"device_id": "test"})
+    assert row_id > 0
+    rows = temp_db.fetch_telemetry()
+    assert len(rows) == 1
+
+    anomaly_id = temp_db.store_anomaly("test_type", "low", "test")
+    assert anomaly_id > 0
+    anomalies = temp_db.fetch_anomalies()
+    assert len(anomalies) == 1
+
+    ai_id = temp_db.store_ai_analysis(1, "evt", "threat", "high", "fix", {})
+    assert ai_id > 0
+
+    note_id = temp_db.store_note("evt", "content")
+    assert note_id > 0
+    notes = temp_db.fetch_notes()
+    assert len(notes) == 1
+
+    tag_id = temp_db.store_evidence_tag("evt", "tag1", "desc")
+    assert tag_id > 0
+    tags = temp_db.fetch_evidence_tags()
+    assert len(tags) == 1
 
 
 # ---------------------------------------------------------------------------

@@ -3,11 +3,14 @@
 import json
 import select
 import socket
+import sys
 import threading
+import time
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
-from PyQt6.QtCore import QObject, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, QThread, pyqtSignal, pyqtSlot
 
 from nexus.db.database import DatabaseManager
 from nexus.hardware.interface import HardwareInterfaceWrapper
@@ -100,6 +103,13 @@ class SerialListenerThread(QThread):
         port = self._port or HardwareInterfaceWrapper.auto_detect_serial_port()
         if not port:
             self.status_changed.emit(False, "No serial telemetry device detected")
+            return
+
+        if sys.platform.startswith("linux") and not port.startswith(("/dev/tty", "/dev/serial")):
+            self.status_changed.emit(False, f"Invalid serial port: {port}")
+            return
+        elif sys.platform == "win32" and not port.upper().startswith("COM"):
+            self.status_changed.emit(False, f"Invalid serial port: {port}")
             return
 
         self._running = True
@@ -236,9 +246,29 @@ class TcpListenerThread(QThread):
                 return False
 
 
+class DbWriter(QObject):
+    """Writes telemetry to database in a background thread."""
+    write_complete = pyqtSignal(dict, int)
+    write_error = pyqtSignal(str)
+
+    def __init__(self, database: DatabaseManager) -> None:
+        super().__init__()
+        self._db = database
+
+    @pyqtSlot(dict)
+    def handle_telemetry(self, telemetry: dict[str, Any]) -> None:
+        try:
+            telemetry_id = self._db.store_telemetry(telemetry)
+            telemetry["_db_id"] = telemetry_id
+            self.write_complete.emit(telemetry, telemetry_id)
+        except Exception as exc:
+            self.write_error.emit(f"DB write failed: {exc}")
+
+
 class TelemetryIngestManager(QObject):
     raw_line_received = pyqtSignal(str)
     telemetry_received = pyqtSignal(dict)
+    telemetry_to_write = pyqtSignal(dict)
     telemetry_invalid = pyqtSignal(str)
     connection_state = pyqtSignal(str, bool, str)
 
@@ -248,6 +278,45 @@ class TelemetryIngestManager(QObject):
         self._validator = TelemetrySchemaValidator()
         self._serial_thread: SerialListenerThread | None = None
         self._tcp_thread: TcpListenerThread | None = None
+        self._db_writer_thread: QThread | None = None
+        self._db_writer: DbWriter | None = None
+        self._rate_limits: dict[str, float] = defaultdict(float)
+        self._MAX_RATE_PER_SEC = 100
+        self._start_db_writer()
+
+    def _check_rate_limit(self, source: str) -> bool:
+        now = time.monotonic()
+        min_interval = 1.0 / self._MAX_RATE_PER_SEC
+        if now - self._rate_limits[source] < min_interval:
+            return False
+        self._rate_limits[source] = now
+        return True
+
+    def _start_db_writer(self) -> None:
+        self._db_writer_thread = QThread()
+        self._db_writer = DbWriter(self._db)
+        self._db_writer.moveToThread(self._db_writer_thread)
+        self.telemetry_to_write.connect(
+            self._db_writer.handle_telemetry,
+            Qt.ConnectionType.QueuedConnection,
+        )
+        # Route write_complete back to main thread for signal emission
+        self._db_writer.write_complete.connect(self._on_write_complete, Qt.ConnectionType.QueuedConnection)
+        self._db_writer.write_error.connect(self._on_db_write_error, Qt.ConnectionType.QueuedConnection)
+        self._db_writer_thread.start()
+
+    def _on_write_complete(self, telemetry: dict[str, Any], telemetry_id: int) -> None:
+        self.telemetry_received.emit(telemetry)
+
+    def _on_db_write_error(self, message: str) -> None:
+        self.telemetry_invalid.emit(message)
+
+    def stop_db_writer(self) -> None:
+        if self._db_writer_thread is not None:
+            self._db_writer_thread.quit()
+            self._db_writer_thread.wait(2000)
+            self._db_writer_thread = None
+            self._db_writer = None
 
     def start_serial(self, port: str = "", baudrate: int = 115200) -> None:
         if self._serial_thread and self._serial_thread.isRunning():
@@ -290,6 +359,7 @@ class TelemetryIngestManager(QObject):
     def stop_all(self) -> None:
         self.stop_serial()
         self.stop_tcp()
+        self.stop_db_writer()
 
     def send_serial_command(self, line: str) -> bool:
         if self._serial_thread and self._serial_thread.isRunning():
@@ -315,6 +385,8 @@ class TelemetryIngestManager(QObject):
         return False
 
     def _handle_line(self, source: str, line: str) -> None:
+        if not self._check_rate_limit(source):
+            return
         self.raw_line_received.emit(f"[{source}] {line}")
 
         try:
@@ -328,6 +400,14 @@ class TelemetryIngestManager(QObject):
             self.telemetry_invalid.emit(f"Invalid telemetry from {source}: {error}")
             return
 
-        telemetry_id = self._db.store_telemetry(telemetry)
-        telemetry["_db_id"] = telemetry_id
-        self.telemetry_received.emit(telemetry)
+        # Write to DB in background thread via DbWriter
+        if self._db_writer is not None:
+            self.telemetry_to_write.emit(telemetry)
+        else:
+            try:
+                telemetry_id = self._db.store_telemetry(telemetry)
+            except Exception as exc:
+                self.telemetry_invalid.emit(f"DB write failed: {exc}")
+                return
+            telemetry["_db_id"] = telemetry_id
+            self._on_write_complete(telemetry, telemetry_id)

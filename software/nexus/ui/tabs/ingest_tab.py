@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+from PyQt6.QtGui import QTextCursor
 from PyQt6.QtWidgets import (
     QFormLayout,
     QGroupBox,
@@ -100,11 +101,14 @@ class DataIngestTab(QWidget):
     def append_raw_line(self, line: str) -> None:
         self.raw_view.appendPlainText(line)
         if self.raw_view.blockCount() > 800:
-            lines = self.raw_view.toPlainText().splitlines()[-600:]
-            self.raw_view.setPlainText("\n".join(lines))
+            cursor = self.raw_view.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.Start)
+            cursor.movePosition(QTextCursor.MoveOperation.Down, QTextCursor.MoveMode.KeepAnchor, 200)
+            cursor.removeSelectedText()
+            self.raw_view.setTextCursor(cursor)
 
     def show_parsed(self, telemetry: dict) -> None:
-        text = json.dumps(telemetry, ensure_ascii=True, indent=2)
+        text = json.dumps(telemetry, ensure_ascii=False, indent=2)
         self.parsed_view.setPlainText(text)
 
     def set_status(self, message: str, ok: bool | None = None) -> None:

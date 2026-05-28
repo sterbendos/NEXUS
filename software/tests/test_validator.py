@@ -57,3 +57,31 @@ def test_validator_ensures_network_and_metrics_dicts(validator):
     assert result["network"]["ip"] == ""
     assert isinstance(result["metrics"], dict)
     assert isinstance(result["events"], list)
+
+
+def test_validator_normalizes_negative_epoch(validator):
+    payload = {"timestamp": -1, "device_id": "test"}
+    valid, result, err = validator.validate(payload, "tcp", "tcp")
+    assert valid is True
+    assert "T" in result["timestamp"]
+
+
+def test_validator_handles_very_long_device_id(validator):
+    payload = {"device_id": "x" * 10000}
+    valid, result, err = validator.validate(payload, "tcp", "tcp")
+    assert valid is True
+    assert len(result["device_id"]) == 10000
+
+
+def test_validator_handles_unicode_device_id(validator):
+    payload = {"device_id": "héllo-世界"}
+    valid, result, err = validator.validate(payload, "tcp", "tcp")
+    assert valid is True
+    assert result["device_id"] == "héllo-世界"
+
+
+def test_validator_handles_nested_malicious_payload(validator):
+    payload = {"device_id": "test", "__proto__": {"admin": True}}
+    valid, result, err = validator.validate(payload, "tcp", "tcp")
+    assert valid is True
+    assert result.get("__proto__") == {"admin": True}

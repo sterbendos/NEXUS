@@ -76,7 +76,7 @@ class LogsDatabaseTab(QWidget):
         self._current_rows = logs
         self.logs_table.setRowCount(len(logs))
         for row_index, row in enumerate(logs):
-            payload_preview = json.dumps(row.get("payload", {}), ensure_ascii=True)[:120]
+            payload_preview = json.dumps(row.get("payload", {}), ensure_ascii=False)[:120]
             values = [
                 str(row.get("id", "")),
                 str(row.get("timestamp", "")),
@@ -101,6 +101,6 @@ class LogsDatabaseTab(QWidget):
                         row.get("device_id", ""),
                         row.get("source", ""),
                         row.get("channel", ""),
-                        json.dumps(row.get("payload", {}), ensure_ascii=True),
+                        json.dumps(row.get("payload", {}), ensure_ascii=False),
                     ]
                 )

@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+from PyQt6.QtGui import QTextCursor
 from PyQt6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
@@ -58,5 +59,8 @@ class IncidentResponseTab(QWidget):
     def add_anomaly(self, text: str) -> None:
         self.anomaly_logs.appendPlainText(text)
         if self.anomaly_logs.blockCount() > 600:
-            lines = self.anomaly_logs.toPlainText().splitlines()[-500:]
-            self.anomaly_logs.setPlainText("\n".join(lines))
+            cursor = self.anomaly_logs.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.Start)
+            cursor.movePosition(QTextCursor.MoveOperation.Down, QTextCursor.MoveMode.KeepAnchor, 100)
+            cursor.removeSelectedText()
+            self.anomaly_logs.setTextCursor(cursor)

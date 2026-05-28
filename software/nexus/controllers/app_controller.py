@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
-from PyQt6.QtWidgets import QFileDialog
+from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
 from nexus.ai.ai_connector import AIConnector
 from nexus.ai.chat_connector import ChatConnector
@@ -13,7 +13,29 @@ from nexus.db.database import DatabaseManager
 from nexus.hardware.job_protocol import JOB_SCHEMA_VERSION, serialize_job_command, validate_job_payload
 from nexus.hardware.telemetry_ingest import TelemetryIngestManager
 from nexus.notes.notes_service import NotesService
+from nexus.constants import (
+    MAX_DESC_LEN,
+    MAX_EVENT_ID_LEN,
+    MAX_NOTE_CONTENT_LEN,
+    MAX_PCAP_SIZE_BYTES,
+    MAX_TAGS_LEN,
+    TELEMETRY_KEEP_LAST_N,
+    ANOMALY_KEEP_LAST_N,
+    AUTO_PURGE_TELEMETRY_THRESHOLD,
+)
 from nexus.ui.main_window import MainWindow
+
+
+class _TelemetryRecord(TypedDict, total=False):
+    timestamp: str
+    device_id: str
+    source: str
+    channel: str
+    network: dict[str, Any]
+    metrics: dict[str, Any]
+    events: list[dict[str, Any]]
+    anomaly: bool
+    _db_id: int
 
 
 def summarize_pcap_capture(file_path: str) -> str:
@@ -27,6 +49,11 @@ def summarize_pcap_capture(file_path: str) -> str:
         return "pyshark is not installed. Run `pip install pyshark` to enable PCAP analysis."
 
     size_bytes = path.stat().st_size
+    if size_bytes > MAX_PCAP_SIZE_BYTES:
+        return (
+            f"Capture file too large ({size_bytes / 1024 / 1024:.1f} MB). "
+            f"Maximum allowed: {MAX_PCAP_SIZE_BYTES / 1024 / 1024:.0f} MB"
+        )
     suffix = path.suffix.lower()
 
     lines = [
@@ -36,6 +63,7 @@ def summarize_pcap_capture(file_path: str) -> str:
         "--- Processing PCAP with PyShark ---",
     ]
 
+    cap = None
     try:
         cap = pyshark.FileCapture(str(path), keep_packets=False)
         packet_count = 0
@@ -64,7 +92,6 @@ def summarize_pcap_capture(file_path: str) -> str:
                 lines.append(f"[Note: Analysis capped at first {max_packets} packets for speed]")
                 break
 
-        cap.close()
         lines.append(f"Total packets scanned: {packet_count}")
 
         if protocols:
@@ -81,6 +108,9 @@ def summarize_pcap_capture(file_path: str) -> str:
 
     except Exception as exc:
         lines.append(f"Error reading capture with pyshark: {exc}")
+    finally:
+        if cap is not None:
+            cap.close()
 
     return "\n".join(lines)
 
@@ -118,7 +148,7 @@ class AppController(QObject):
         self.ai = ai_connector
         self.chat = chat_connector
         self.notes_service = notes_service
-        self._last_telemetry: dict[str, Any] = {}
+        self._last_telemetry: _TelemetryRecord = {}
         self._pcap_worker: PcapSummaryWorker | None = None
         self._pending_hardware_jobs: list[dict[str, Any]] = []
 
@@ -140,7 +170,9 @@ class AppController(QObject):
         self.window.ai_tab.analyze_btn.clicked.connect(self._on_run_ai)
         self.window.ai_tab.cancel_btn.clicked.connect(self.ai.cancel)
         self.window.ai_tab.dispatch_jobs_btn.clicked.connect(self._dispatch_hardware_jobs)
-        self.ai.analysis_started.connect(lambda: self.window.ai_tab.set_status("Running analysis...", "warn"))
+        self.ai.analysis_started.connect(
+            lambda: self.window.ai_tab.set_status("Running analysis...", "warn", running=True)
+        )
         self.ai.analysis_ready.connect(self._on_ai_ready)
         self.ai.analysis_error.connect(self._on_ai_error)
 
@@ -168,9 +200,9 @@ class AppController(QObject):
     def _load_initial_state(self) -> None:
         # Auto-purge if DB has grown very large
         total = self.db.count_telemetry()
-        if total > 100_000:
-            self.db.purge_old_telemetry(keep_last_n=50_000)
-            self.db.purge_old_anomalies(keep_last_n=10_000)
+        if total > AUTO_PURGE_TELEMETRY_THRESHOLD:
+            self.db.purge_old_telemetry(keep_last_n=TELEMETRY_KEEP_LAST_N)
+            self.db.purge_old_anomalies(keep_last_n=ANOMALY_KEEP_LAST_N)
 
         self.refresh_network_views()
         self.refresh_logs()
@@ -187,9 +219,11 @@ class AppController(QObject):
 
         recent = self.db.fetch_telemetry(limit=1)
         if recent:
-            self._last_telemetry = recent[0]["payload"]
+            payload = recent[0]["payload"]
+            self._last_telemetry = dict(payload) if isinstance(payload, dict) else {"payload": payload}
+            self._last_telemetry["_db_id"] = recent[0]["id"]
             self.window.ai_tab.input_view.setPlainText(
-                json.dumps(self._last_telemetry, ensure_ascii=True, indent=2)
+                json.dumps(self._last_telemetry, ensure_ascii=False, indent=2)
             )
 
     def _start_serial_listener(self) -> None:
@@ -247,7 +281,7 @@ class AppController(QObject):
         self.window.incident_tab.add_timeline_event(f"{stamp} | {device_id} via {source}")
 
         if not self.window.ai_tab.input_view.toPlainText().strip():
-            self.window.ai_tab.input_view.setPlainText(json.dumps(telemetry, ensure_ascii=True, indent=2))
+            self.window.ai_tab.input_view.setPlainText(json.dumps(telemetry, ensure_ascii=False, indent=2))
 
         self._maybe_log_anomaly(telemetry)
         self.refresh_network_views()
@@ -294,7 +328,7 @@ class AppController(QObject):
 
     def _on_ai_ready(self, result: dict[str, Any]) -> None:
         self.window.ai_tab.set_result(result)
-        self.window.ai_tab.set_status("Analysis complete", "ok")
+        self.window.ai_tab.set_status("Analysis complete", "ok", running=False)
         self._pending_hardware_jobs = []
         for raw_job in result.get("hardware_jobs", []):
             if isinstance(raw_job, dict):
@@ -309,7 +343,7 @@ class AppController(QObject):
         )
         telemetry_id = self._last_telemetry.get("_db_id")
         self.db.store_ai_analysis(
-            telemetry_id=int(telemetry_id) if isinstance(telemetry_id, int) else None,
+            telemetry_id=int(telemetry_id) if telemetry_id is not None else None,
             event_id=event_id,
             threat_classification=str(result.get("threat_classification", "Unknown")),
             severity=str(result.get("severity", "medium")),
@@ -324,7 +358,11 @@ class AppController(QObject):
             )
 
     def _on_ai_error(self, message: str) -> None:
-        self.window.ai_tab.set_status(message, "bad")
+        if message.startswith("Analysis cancellation requested"):
+            self.window.ai_tab.set_status("Analysis canceled", "warn", running=False)
+            return
+
+        self.window.ai_tab.set_status(message, "bad", running=False)
         self.window.incident_tab.add_anomaly(message)
         self.db.store_anomaly(event_type="ai_error", severity="medium", details=message)
 
@@ -420,20 +458,19 @@ class AppController(QObject):
             self.window.logs_tab.set_status(f"Export failed: {exc}", ok=False)
 
     def _purge_logs(self) -> None:
-        from PyQt6.QtWidgets import QMessageBox
         total = self.db.count_telemetry()
         reply = QMessageBox.warning(
             self.window,
             "Purge Old Telemetry",
-            f"This will delete all but the 50,000 most recent rows.\n"
+            f"This will delete all but the {TELEMETRY_KEEP_LAST_N:,} most recent rows.\n"
             f"Current row count: {total:,}\n\nProceed?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Cancel,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
-        deleted_t = self.db.purge_old_telemetry(keep_last_n=50_000)
-        deleted_a = self.db.purge_old_anomalies(keep_last_n=10_000)
+        deleted_t = self.db.purge_old_telemetry(keep_last_n=TELEMETRY_KEEP_LAST_N)
+        deleted_a = self.db.purge_old_anomalies(keep_last_n=ANOMALY_KEEP_LAST_N)
         self.refresh_logs()
         self.window.logs_tab.set_status(
             f"Purged {deleted_t:,} telemetry rows and {deleted_a:,} anomaly rows", ok=True
@@ -448,10 +485,16 @@ class AppController(QObject):
         event_id = self.window.notes_tab.event_id_input.text().strip()
         if not event_id:
             event_id = str(self._last_telemetry.get("device_id", ""))
+        if len(event_id) > MAX_EVENT_ID_LEN:
+            self.window.notes_tab.set_status(f"Event ID too long (max {MAX_EVENT_ID_LEN})", ok=False)
+            return
 
         content = self.window.notes_tab.markdown().strip()
         if not content:
             self.window.notes_tab.set_status("Note content is empty", ok=False)
+            return
+        if len(content) > MAX_NOTE_CONTENT_LEN:
+            self.window.notes_tab.set_status(f"Note content too long (max {MAX_NOTE_CONTENT_LEN})", ok=False)
             return
 
         note_id = self.notes_service.save_note(event_id=event_id, markdown_content=content)
@@ -520,12 +563,18 @@ class AppController(QObject):
         worker.start()
 
     def _on_pcap_summary_ready(self, file_path: str, summary: str) -> None:
+        sender = self.sender()
+        if sender is not None and sender is not self._pcap_worker:
+            return
         self.window.pentest_tab.show_pcap_summary(path=Path(file_path).name, summary=summary)
         self.window.pentest_tab.set_status("PCAP analysis complete", ok=True)
         self.window.incident_tab.add_timeline_event(f"Loaded capture: {Path(file_path).name}")
         self._pcap_worker = None
 
     def _on_pcap_summary_error(self, message: str) -> None:
+        sender = self.sender()
+        if sender is not None and sender is not self._pcap_worker:
+            return
         self.window.pentest_tab.set_status(message, ok=False)
         self._pcap_worker = None
 
@@ -536,6 +585,15 @@ class AppController(QObject):
 
         if not tags:
             self.window.pentest_tab.set_status("Tags are required", ok=False)
+            return
+        if len(event_id) > MAX_EVENT_ID_LEN:
+            self.window.pentest_tab.set_status(f"Event ID too long (max {MAX_EVENT_ID_LEN})", ok=False)
+            return
+        if len(tags) > MAX_TAGS_LEN:
+            self.window.pentest_tab.set_status(f"Tags too long (max {MAX_TAGS_LEN})", ok=False)
+            return
+        if len(description) > MAX_DESC_LEN:
+            self.window.pentest_tab.set_status(f"Description too long (max {MAX_DESC_LEN})", ok=False)
             return
 
         record_id = self.db.store_evidence_tag(event_id=event_id, tags=tags, description=description)

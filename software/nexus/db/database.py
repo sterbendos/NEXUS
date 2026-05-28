@@ -3,9 +3,12 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
+
+from nexus.constants import ANOMALY_KEEP_LAST_N, MAX_QUERY_LIMIT, TELEMETRY_KEEP_LAST_N
 
 
 class DatabaseManager:
@@ -15,15 +18,35 @@ class DatabaseManager:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
+        self._json_support = False
         self.initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(str(self.db_path))
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA foreign_keys=ON")
         return conn
 
+    @contextmanager
+    def _access_db(self) -> Iterator[sqlite3.Connection]:
+        with self._lock:
+            conn = self._connect()
+            try:
+                yield conn
+                conn.commit()
+            finally:
+                conn.close()
+
     def initialize(self) -> None:
-        with self._lock, self._connect() as conn:
+        conn = self._connect()
+        try:
+            try:
+                conn.execute("SELECT json_valid('{}')")
+                self._json_support = True
+            except sqlite3.OperationalError:
+                self._json_support = False
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS telemetry_logs (
@@ -73,8 +96,14 @@ class DatabaseManager:
                     description TEXT NOT NULL,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
+
+                CREATE INDEX IF NOT EXISTS idx_telemetry_device_id ON telemetry_logs(device_id);
+                CREATE INDEX IF NOT EXISTS idx_telemetry_timestamp ON telemetry_logs(timestamp DESC);
+                CREATE INDEX IF NOT EXISTS idx_anomaly_timestamp ON anomaly_logs(timestamp DESC);
                 """
             )
+        finally:
+            conn.close()
 
     @staticmethod
     def _utc_now() -> str:
@@ -85,8 +114,8 @@ class DatabaseManager:
         device_id = str(telemetry.get("device_id") or "unknown-device")
         source = str(telemetry.get("source") or "unknown")
         channel = str(telemetry.get("channel") or source)
-        payload = json.dumps(telemetry, ensure_ascii=True)
-        with self._lock, self._connect() as conn:
+        payload = json.dumps(telemetry, ensure_ascii=False)
+        with self._access_db() as conn:
             cursor = conn.execute(
                 """
                 INSERT INTO telemetry_logs (timestamp, device_id, source, channel, payload)
@@ -97,19 +126,15 @@ class DatabaseManager:
             return int(cursor.lastrowid)
 
     def fetch_telemetry(self, device_id: str = "", limit: int = 200) -> list[dict[str, Any]]:
-        query = (
-            "SELECT id, timestamp, device_id, source, channel, payload "
-            "FROM telemetry_logs "
-        )
-        params: tuple[Any, ...]
+        clamp = max(1, min(limit, MAX_QUERY_LIMIT))
         if device_id:
-            query += "WHERE device_id = ? "
-            params = (device_id, max(1, min(limit, 1000)))
+            query = "SELECT id, timestamp, device_id, source, channel, payload FROM telemetry_logs WHERE device_id = ? ORDER BY id DESC LIMIT ?"
+            params: tuple[Any, ...] = (device_id, clamp)
         else:
-            params = (max(1, min(limit, 1000)),)
-        query += "ORDER BY id DESC LIMIT ?"
+            query = "SELECT id, timestamp, device_id, source, channel, payload FROM telemetry_logs ORDER BY id DESC LIMIT ?"
+            params = (clamp,)
 
-        with self._lock, self._connect() as conn:
+        with self._access_db() as conn:
             rows = conn.execute(query, params).fetchall()
 
         results: list[dict[str, Any]] = []
@@ -133,14 +158,13 @@ class DatabaseManager:
         return results
 
     def count_telemetry(self) -> int:
-        with self._lock, self._connect() as conn:
+        with self._access_db() as conn:
             row = conn.execute("SELECT COUNT(*) AS total FROM telemetry_logs").fetchone()
         return int(row["total"]) if row else 0
 
     def fetch_device_summary(self) -> list[dict[str, Any]]:
-        with self._lock, self._connect() as conn:
-            rows = conn.execute(
-                """
+        if self._json_support:
+            query = """
                 SELECT
                     device_id,
                     COUNT(*) AS events,
@@ -162,25 +186,61 @@ class DatabaseManager:
                 FROM telemetry_logs
                 GROUP BY device_id
                 ORDER BY last_seen DESC
-                """
-            ).fetchall()
+            """
+            with self._access_db() as conn:
+                rows = conn.execute(query).fetchall()
 
-        summary: list[dict[str, Any]] = []
-        for row in rows:
-            summary.append(
-                {
-                    "device_id": row["device_id"],
-                    "events": int(row["events"]),
-                    "last_seen": row["last_seen"] or "",
-                    "ip": row["ip"] or "",
-                    "mac": row["mac"] or "",
-                }
-            )
-        return summary
+            summary: list[dict[str, Any]] = []
+            for row in rows:
+                summary.append(
+                    {
+                        "device_id": row["device_id"],
+                        "events": int(row["events"]),
+                        "last_seen": row["last_seen"] or "",
+                        "ip": row["ip"] or "",
+                        "mac": row["mac"] or "",
+                    }
+                )
+            return summary
+        else:
+            with self._access_db() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT device_id, timestamp, payload
+                    FROM telemetry_logs
+                    ORDER BY id DESC
+                    """
+                ).fetchall()
+
+            summary_map: dict[str, dict[str, Any]] = {}
+            for row in rows:
+                device_id = str(row["device_id"] or "unknown-device")
+                entry = summary_map.get(device_id)
+                if entry is None:
+                    payload_text = row["payload"] or "{}"
+                    try:
+                        payload = json.loads(payload_text)
+                    except json.JSONDecodeError:
+                        payload = {}
+                    network = payload.get("network") if isinstance(payload, dict) else {}
+                    if not isinstance(network, dict):
+                        network = {}
+
+                    summary_map[device_id] = {
+                        "device_id": device_id,
+                        "events": 1,
+                        "last_seen": row["timestamp"] or "",
+                        "ip": str(network.get("ip") or ""),
+                        "mac": str(network.get("mac") or ""),
+                    }
+                else:
+                    entry["events"] += 1
+
+            return list(summary_map.values())
 
     def store_anomaly(self, event_type: str, severity: str, details: str, timestamp: str = "") -> int:
         timestamp_value = timestamp or self._utc_now()
-        with self._lock, self._connect() as conn:
+        with self._access_db() as conn:
             cursor = conn.execute(
                 """
                 INSERT INTO anomaly_logs (timestamp, event_type, severity, details)
@@ -191,7 +251,7 @@ class DatabaseManager:
             return int(cursor.lastrowid)
 
     def fetch_anomalies(self, limit: int = 200) -> list[dict[str, Any]]:
-        with self._lock, self._connect() as conn:
+        with self._access_db() as conn:
             rows = conn.execute(
                 """
                 SELECT id, timestamp, event_type, severity, details
@@ -199,7 +259,7 @@ class DatabaseManager:
                 ORDER BY id DESC
                 LIMIT ?
                 """,
-                (max(1, min(limit, 1000)),),
+                (max(1, min(limit, MAX_QUERY_LIMIT)),),
             ).fetchall()
         return [dict(row) for row in rows]
 
@@ -212,8 +272,8 @@ class DatabaseManager:
         mitigation: str,
         raw_response: dict[str, Any] | str,
     ) -> int:
-        raw_text = raw_response if isinstance(raw_response, str) else json.dumps(raw_response, ensure_ascii=True)
-        with self._lock, self._connect() as conn:
+        raw_text = raw_response if isinstance(raw_response, str) else json.dumps(raw_response, ensure_ascii=False)
+        with self._access_db() as conn:
             cursor = conn.execute(
                 """
                 INSERT INTO ai_analysis (
@@ -236,7 +296,7 @@ class DatabaseManager:
 
     def store_note(self, event_id: str, content: str, timestamp: str = "") -> int:
         timestamp_value = timestamp or self._utc_now()
-        with self._lock, self._connect() as conn:
+        with self._access_db() as conn:
             cursor = conn.execute(
                 """
                 INSERT INTO notes (event_id, timestamp, content)
@@ -247,7 +307,7 @@ class DatabaseManager:
             return int(cursor.lastrowid)
 
     def fetch_notes(self, limit: int = 200) -> list[dict[str, Any]]:
-        with self._lock, self._connect() as conn:
+        with self._access_db() as conn:
             rows = conn.execute(
                 """
                 SELECT id, event_id, timestamp, content
@@ -255,12 +315,12 @@ class DatabaseManager:
                 ORDER BY id DESC
                 LIMIT ?
                 """,
-                (max(1, min(limit, 1000)),),
+                (max(1, min(limit, MAX_QUERY_LIMIT)),),
             ).fetchall()
         return [dict(row) for row in rows]
 
     def store_evidence_tag(self, event_id: str, tags: str, description: str) -> int:
-        with self._lock, self._connect() as conn:
+        with self._access_db() as conn:
             cursor = conn.execute(
                 """
                 INSERT INTO evidence_tags (event_id, tags, description)
@@ -271,7 +331,7 @@ class DatabaseManager:
             return int(cursor.lastrowid)
 
     def fetch_evidence_tags(self, limit: int = 200) -> list[dict[str, Any]]:
-        with self._lock, self._connect() as conn:
+        with self._access_db() as conn:
             rows = conn.execute(
                 """
                 SELECT id, event_id, tags, description, created_at
@@ -279,42 +339,23 @@ class DatabaseManager:
                 ORDER BY id DESC
                 LIMIT ?
                 """,
-                (max(1, min(limit, 1000)),),
+                (max(1, min(limit, MAX_QUERY_LIMIT)),),
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def purge_old_telemetry(self, keep_last_n: int = 50_000) -> int:
-        """Delete all but the *keep_last_n* most recent telemetry rows.
-
-        Returns the number of rows deleted.
-        """
+    def _purge_table(self, table: str, keep_last_n: int) -> int:
         keep_last_n = max(1, keep_last_n)
-        with self._lock, self._connect() as conn:
-            deleted = conn.execute(
-                """
-                DELETE FROM telemetry_logs
-                WHERE id NOT IN (
-                    SELECT id FROM telemetry_logs ORDER BY id DESC LIMIT ?
-                )
-                """,
-                (keep_last_n,),
-            ).rowcount
+        with self._access_db() as conn:
+            cursor = conn.execute(f"SELECT id FROM {table} ORDER BY id DESC LIMIT ?", (keep_last_n,))
+            rows = cursor.fetchall()
+            if not rows:
+                return 0
+            min_keep_id = rows[-1][0]
+            deleted = conn.execute(f"DELETE FROM {table} WHERE id < ?", (min_keep_id,)).rowcount
         return deleted
 
-    def purge_old_anomalies(self, keep_last_n: int = 10_000) -> int:
-        """Delete all but the *keep_last_n* most recent anomaly rows.
+    def purge_old_telemetry(self, keep_last_n: int = TELEMETRY_KEEP_LAST_N) -> int:
+        return self._purge_table("telemetry_logs", keep_last_n)
 
-        Returns the number of rows deleted.
-        """
-        keep_last_n = max(1, keep_last_n)
-        with self._lock, self._connect() as conn:
-            deleted = conn.execute(
-                """
-                DELETE FROM anomaly_logs
-                WHERE id NOT IN (
-                    SELECT id FROM anomaly_logs ORDER BY id DESC LIMIT ?
-                )
-                """,
-                (keep_last_n,),
-            ).rowcount
-        return deleted
+    def purge_old_anomalies(self, keep_last_n: int = ANOMALY_KEEP_LAST_N) -> int:
+        return self._purge_table("anomaly_logs", keep_last_n)
