@@ -1,30 +1,21 @@
-NEXUS Source Available License
+MIT License
 
-Copyright (c) 2026 sterbendos. All rights reserved.
+Copyright (c) 2026 sterbendos
 
-1. VIEWING PERMITTED
-   You may view, read, and browse this source code for personal,
-   educational, and reference purposes only.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-2. NO USE PERMITTED
-   You may NOT use, copy, modify, merge, publish, distribute,
-   sublicense, sell, or create derivative works from this code,
-   in whole or in part, for any purpose — commercial or otherwise.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-3. NO COMMERCIAL USE
-   Commercial use of any kind is strictly prohibited, including
-   but not limited to: selling, incorporating into products or
-   services, running as infrastructure, or using as training data
-   for AI/ML models.
-
-4. INSPIRATION ALLOWED
-   You may be inspired by the concepts, architecture, or ideas
-   demonstrated in this code to build your own independent
-   implementation, provided that implementation does not copy
-   or reproduce this code's expression (structure, naming,
-   specific logic, or design choices).
-
-5. NO WARRANTY
-   This code is provided "as is" without warranty of any kind.
-
-For licensing inquiries: ahmmmd1113@gmail.com
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
