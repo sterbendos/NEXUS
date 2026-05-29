@@ -266,6 +266,7 @@ Then open `http://localhost:8000`.
 
 This repository is intended for authorized research, development, and lab use. Some firmware modules are experimental or lab-only. The public demo intentionally excludes those actions and only simulates the product workflow.
 
+## this project was built assisted with AI. 
 ## License
 
 The project is licensed under the MIT License. See [LICENSE](LICENSE) for the full text.
